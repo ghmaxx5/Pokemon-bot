@@ -4,7 +4,8 @@ const COMMAND_CATEGORIES = {
   "Getting Started": [
     { name: "start", desc: "Begin your Pokemon journey and pick a starter" },
     { name: "help", desc: "Show this help message" },
-    { name: "daily", desc: "Claim your daily credits reward" }
+    { name: "daily", desc: "Claim your daily Cybercoins reward" },
+    { name: "profile / prof", desc: "View your profile" }
   ],
   "Pokemon": [
     { name: "catch / c", desc: "Catch a wild Pokemon" },
@@ -19,8 +20,8 @@ const COMMAND_CATEGORIES = {
     { name: "dex", desc: "View your Pokedex progress" }
   ],
   "Economy": [
-    { name: "balance / bal", desc: "Check your credit balance" },
-    { name: "give / pay", desc: "Give credits to another user" },
+    { name: "balance / bal", desc: "Check your Cybercoin balance" },
+    { name: "give / pay", desc: "Give Cybercoins to another user" },
     { name: "daily", desc: "Claim daily reward" }
   ],
   "Market": [
@@ -40,6 +41,13 @@ const COMMAND_CATEGORIES = {
     { name: "battle @user", desc: "Challenge someone to battle" },
     { name: "battle accept", desc: "Accept a battle challenge" },
     { name: "battle decline", desc: "Decline a battle challenge" }
+  ],
+  "Shop": [
+    { name: "shop", desc: "Browse available items" },
+    { name: "shop buy", desc: "Buy an item" },
+    { name: "shop use", desc: "Use an item on a Pokemon" },
+    { name: "shop hold", desc: "Give an item to a Pokemon" },
+    { name: "shop inv", desc: "View your inventory" }
   ],
   "Server Settings": [
     { name: "server", desc: "View server configuration" },

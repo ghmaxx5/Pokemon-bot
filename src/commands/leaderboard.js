@@ -31,7 +31,7 @@ async function execute(message, args) {
     );
 
     const lines = result.rows.map((r, i) =>
-      `**${i + 1}.** ${r.username || `<@${r.user_id}>`} — **${r.balance.toLocaleString()}** credits`
+      `**${i + 1}.** ${r.username || `<@${r.user_id}>`} — **${r.balance.toLocaleString()}** Cybercoins`
     );
 
     const embed = new EmbedBuilder()

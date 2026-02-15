@@ -62,6 +62,14 @@ const STARTER_REGIONS = {
       { id: 813, name: "Scorbunny" },
       { id: 816, name: "Sobble" }
     ]
+  },
+  paldea: {
+    name: "Paldea",
+    starters: [
+      { id: 906, name: "Sprigatito" },
+      { id: 909, name: "Fuecoco" },
+      { id: 912, name: "Quaxly" }
+    ]
   }
 };
 

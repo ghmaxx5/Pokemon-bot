@@ -1,0 +1,261 @@
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { pool } = require("../database");
+const { SHOP_ITEMS, SHOP_CATEGORIES } = require("../data/shopItems");
+const { getPokemonById } = require("../data/pokemonLoader");
+const { capitalize, generateIVs, randomNature, totalIV } = require("../utils/helpers");
+
+async function execute(message, args) {
+  const userId = message.author.id;
+
+  const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
+  if (user.rows.length === 0) return message.reply("You haven't started yet! Use `p!start` to begin.");
+
+  if (!args.length) {
+    return showShop(message, user.rows[0]);
+  }
+
+  const subcommand = args[0].toLowerCase();
+
+  if (subcommand === "buy") {
+    if (!args[1]) return message.reply("Usage: `p!shop buy <item name>`\nUse `p!shop` to see available items.");
+
+    const itemKey = args.slice(1).join("_").toLowerCase().replace(/\s+/g, "_");
+    const item = Object.values(SHOP_ITEMS).find(i =>
+      i.id === itemKey || i.name.toLowerCase() === args.slice(1).join(" ").toLowerCase()
+    );
+
+    if (!item) return message.reply("Item not found! Use `p!shop` to see available items.");
+    if (user.rows[0].balance < item.price) {
+      return message.reply(`You need **${item.price.toLocaleString()}** Cybercoins but only have **${user.rows[0].balance.toLocaleString()}**!`);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [item.price, userId]);
+      await client.query(
+        `INSERT INTO user_inventory (user_id, item_id, quantity) VALUES ($1, $2, 1)
+         ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1`,
+        [userId, item.id]
+      );
+      await client.query("COMMIT");
+
+      const embed = new EmbedBuilder()
+        .setTitle(`${item.emoji} Item Purchased!`)
+        .setDescription(`You bought **${item.name}** for **${item.price.toLocaleString()}** Cybercoins!\n\nNew balance: **${(user.rows[0].balance - item.price).toLocaleString()}** Cybercoins`)
+        .setColor(0x2ecc71);
+
+      return message.channel.send({ embeds: [embed] });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      return message.reply("Purchase failed. Please try again.");
+    } finally {
+      client.release();
+    }
+  }
+
+  if (subcommand === "use") {
+    if (args.length < 2) return message.reply("Usage: `p!shop use <item name> [pokemon id]`");
+
+    const itemName = args.slice(1).filter(a => isNaN(a)).join("_").toLowerCase().replace(/\s+/g, "_");
+    const pokemonDbId = args.find(a => !isNaN(a) && a !== args[0]) ? parseInt(args.find(a => !isNaN(a) && a !== args[0])) : user.rows[0].selected_pokemon_id;
+    const item = Object.values(SHOP_ITEMS).find(i =>
+      i.id === itemName || i.name.toLowerCase().replace(/\s+/g, "_") === itemName || i.name.toLowerCase() === args.slice(1).filter(a => isNaN(a)).join(" ").toLowerCase()
+    );
+
+    if (!item) return message.reply("Item not found!");
+
+    const inv = await pool.query("SELECT quantity FROM user_inventory WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+    if (inv.rows.length === 0 || inv.rows[0].quantity < 1) {
+      return message.reply(`You don't have any **${item.name}**! Buy one from the shop.`);
+    }
+
+    if (item.id === "rare_candy") {
+      if (!pokemonDbId) return message.reply("Select a Pokemon first or specify an ID!");
+      const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+      if (poke.rows.length === 0) return message.reply("Pokemon not found.");
+      if (poke.rows[0].level >= 100) return message.reply("That Pokemon is already max level!");
+
+      await pool.query("UPDATE pokemon SET level = level + 1, xp = 0 WHERE id = $1", [pokemonDbId]);
+      await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+      await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, item.id]);
+
+      const data = getPokemonById(poke.rows[0].pokemon_id);
+      const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+      return message.reply(`🍬 **${name}** grew to **Level ${poke.rows[0].level + 1}**!`);
+    }
+
+    if (item.id === "iv_stone") {
+      if (!pokemonDbId) return message.reply("Select a Pokemon first or specify an ID!");
+      const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+      if (poke.rows.length === 0) return message.reply("Pokemon not found.");
+
+      const ivs = generateIVs();
+      await pool.query(
+        "UPDATE pokemon SET iv_hp = $1, iv_atk = $2, iv_def = $3, iv_spatk = $4, iv_spdef = $5, iv_spd = $6 WHERE id = $7",
+        [ivs.hp, ivs.atk, ivs.def, ivs.spatk, ivs.spdef, ivs.spd, pokemonDbId]
+      );
+      await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+      await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, item.id]);
+
+      const iv = totalIV(ivs);
+      const data = getPokemonById(poke.rows[0].pokemon_id);
+      const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+      return message.reply(`🔮 **${name}**'s IVs have been rerolled! New IV: **${iv}%**`);
+    }
+
+    if (item.id === "nature_mint") {
+      if (!pokemonDbId) return message.reply("Select a Pokemon first or specify an ID!");
+      const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+      if (poke.rows.length === 0) return message.reply("Pokemon not found.");
+
+      const newNature = randomNature();
+      await pool.query("UPDATE pokemon SET nature = $1 WHERE id = $2", [newNature, pokemonDbId]);
+      await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+      await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, item.id]);
+
+      const data = getPokemonById(poke.rows[0].pokemon_id);
+      const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+      return message.reply(`🌿 **${name}**'s nature changed to **${newNature}**!`);
+    }
+
+    if (item.id === "lucky_egg") {
+      const bonus = Math.floor(Math.random() * 4001) + 1000;
+      await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [bonus, userId]);
+      await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+      await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, item.id]);
+      return message.reply(`🥚 You cracked the Lucky Egg and found **${bonus.toLocaleString()}** Cybercoins!`);
+    }
+
+    if (item.id === "shiny_charm") {
+      await pool.query(
+        `INSERT INTO user_boosts (user_id, boost_type, uses_left) VALUES ($1, 'shiny_charm', 50)`,
+        [userId]
+      );
+      await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+      await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, item.id]);
+      return message.reply("✨ Shiny Charm activated! Your shiny rate is doubled for the next **50** catches!");
+    }
+
+    if (item.id === "xp_boost") {
+      const expiresAt = new Date(Date.now() + 3600000);
+      await pool.query(
+        `INSERT INTO user_boosts (user_id, boost_type, expires_at) VALUES ($1, 'xp_boost', $2)`,
+        [userId, expiresAt]
+      );
+      await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, item.id]);
+      await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, item.id]);
+      return message.reply("⚡ XP Booster activated! Double XP for **1 hour**!");
+    }
+
+    if (item.id === "master_ball") {
+      return message.reply("🟣 The **Master Ball** is used automatically! When a Pokemon spawns, type `p!catch master ball` to catch it without guessing the name.");
+    }
+
+    if (item.id === "mega_stone" || item.id === "gmax_ring") {
+      return message.reply(`Use \`p!shop hold ${item.id} <pokemon id>\` to give this item to a Pokemon.`);
+    }
+
+    return message.reply(`To use **${item.name}**, see its specific usage instructions.`);
+  }
+
+  if (subcommand === "hold") {
+    if (args.length < 3) return message.reply("Usage: `p!shop hold <item> <pokemon id>`\nItems: `mega_stone`, `gmax_ring`");
+
+    const itemName = args[1].toLowerCase();
+    const pokemonDbId = parseInt(args[2]);
+    if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon ID.");
+
+    if (!["mega_stone", "gmax_ring"].includes(itemName)) {
+      return message.reply("Only **Mega Stone** and **Gigantamax Ring** can be held by Pokemon.");
+    }
+
+    const inv = await pool.query("SELECT quantity FROM user_inventory WHERE user_id = $1 AND item_id = $2", [userId, itemName]);
+    if (inv.rows.length === 0 || inv.rows[0].quantity < 1) {
+      return message.reply(`You don't have any **${SHOP_ITEMS[itemName].name}**! Buy one from the shop.`);
+    }
+
+    const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+    if (poke.rows.length === 0) return message.reply("Pokemon not found in your collection.");
+
+    if (poke.rows[0].held_item) {
+      return message.reply(`This Pokemon is already holding a **${SHOP_ITEMS[poke.rows[0].held_item]?.name || poke.rows[0].held_item}**! Use \`p!shop unhold <pokemon id>\` first.`);
+    }
+
+    await pool.query("UPDATE pokemon SET held_item = $1 WHERE id = $2", [itemName, pokemonDbId]);
+    await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = $2", [userId, itemName]);
+    await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = $2 AND quantity <= 0", [userId, itemName]);
+
+    const data = getPokemonById(poke.rows[0].pokemon_id);
+    const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+    return message.reply(`${SHOP_ITEMS[itemName].emoji} **${name}** is now holding a **${SHOP_ITEMS[itemName].name}**!`);
+  }
+
+  if (subcommand === "unhold") {
+    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `p!shop unhold <pokemon id>`");
+    const pokemonDbId = parseInt(args[1]);
+
+    const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+    if (poke.rows.length === 0) return message.reply("Pokemon not found.");
+    if (!poke.rows[0].held_item) return message.reply("That Pokemon isn't holding anything.");
+
+    const heldItem = poke.rows[0].held_item;
+    await pool.query("UPDATE pokemon SET held_item = NULL WHERE id = $1", [pokemonDbId]);
+    await pool.query(
+      `INSERT INTO user_inventory (user_id, item_id, quantity) VALUES ($1, $2, 1)
+       ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1`,
+      [userId, heldItem]
+    );
+
+    const data = getPokemonById(poke.rows[0].pokemon_id);
+    const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+    return message.reply(`Removed **${SHOP_ITEMS[heldItem]?.name || heldItem}** from **${name}** and returned it to your inventory.`);
+  }
+
+  if (subcommand === "inventory" || subcommand === "inv" || subcommand === "bag") {
+    const inv = await pool.query("SELECT * FROM user_inventory WHERE user_id = $1 AND quantity > 0 ORDER BY item_id", [userId]);
+
+    if (inv.rows.length === 0) {
+      return message.reply("Your inventory is empty! Use `p!shop buy <item>` to purchase items.");
+    }
+
+    let desc = "";
+    for (const row of inv.rows) {
+      const item = SHOP_ITEMS[row.item_id];
+      if (item) {
+        desc += `${item.emoji} **${item.name}** x${row.quantity}\n`;
+      }
+    }
+
+    const embed = new EmbedBuilder()
+      .setTitle(`${message.author.username}'s Inventory`)
+      .setDescription(desc)
+      .setColor(0x9b59b6)
+      .setFooter({ text: "Use p!shop use <item> [pokemon id] | p!shop hold <item> <pokemon id>" });
+
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  return showShop(message, user.rows[0]);
+}
+
+async function showShop(message, user) {
+  const embed = new EmbedBuilder()
+    .setTitle("🏪 Cyber Shop")
+    .setDescription(`Your balance: **${user.balance.toLocaleString()}** Cybercoins\n\n`)
+    .setColor(0x9b59b6);
+
+  for (const [catId, cat] of Object.entries(SHOP_CATEGORIES)) {
+    const items = Object.values(SHOP_ITEMS).filter(i => i.category === catId);
+    const itemStr = items.map(i =>
+      `${i.emoji} **${i.name}** — **${i.price.toLocaleString()}** CC\n┗ ${i.description}`
+    ).join("\n\n");
+    embed.addFields({ name: `${cat.emoji} ${cat.name}`, value: itemStr, inline: false });
+  }
+
+  embed.setFooter({ text: "p!shop buy <item> | p!shop use <item> [id] | p!shop hold <item> <id> | p!shop inv" });
+
+  message.channel.send({ embeds: [embed] });
+}
+
+module.exports = { name: "shop", aliases: ["store", "buy"], description: "Buy items from the shop", execute };

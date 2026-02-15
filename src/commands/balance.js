@@ -11,7 +11,7 @@ async function execute(message, args) {
 
   const embed = new EmbedBuilder()
     .setTitle(`${message.author.username}'s Balance`)
-    .setDescription(`You have **${result.rows[0].balance.toLocaleString()}** credits.`)
+    .setDescription(`You have **${result.rows[0].balance.toLocaleString()}** Cybercoins.`)
     .setColor(0xf1c40f);
 
   message.channel.send({ embeds: [embed] });

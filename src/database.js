@@ -37,7 +37,8 @@ async function initDatabase() {
         nature TEXT,
         favorite BOOLEAN DEFAULT FALSE,
         caught_at TIMESTAMPTZ DEFAULT NOW(),
-        original_owner TEXT
+        original_owner TEXT,
+        held_item TEXT DEFAULT NULL
       );
 
       CREATE TABLE IF NOT EXISTS market_listings (
@@ -94,6 +95,23 @@ async function initDatabase() {
         opponent_pokemon_id INTEGER,
         challenger_hp INTEGER,
         opponent_hp INTEGER,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS user_inventory (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT REFERENCES users(user_id) ON DELETE CASCADE,
+        item_id TEXT NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        UNIQUE(user_id, item_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS user_boosts (
+        id SERIAL PRIMARY KEY,
+        user_id TEXT REFERENCES users(user_id) ON DELETE CASCADE,
+        boost_type TEXT NOT NULL,
+        expires_at TIMESTAMPTZ,
+        uses_left INTEGER,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
 

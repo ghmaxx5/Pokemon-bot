@@ -20,7 +20,7 @@ async function execute(message, args) {
     if (isNaN(pokemonDbId) || isNaN(price) || price < 1) {
       return message.reply("Invalid Pokemon ID or price.");
     }
-    if (price > 10000000) return message.reply("Maximum listing price is 10,000,000 credits.");
+    if (price > 10000000) return message.reply("Maximum listing price is 10,000,000 Cybercoins.");
 
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
     if (poke.rows.length === 0) return message.reply("You don't own that Pokemon.");
@@ -41,7 +41,7 @@ async function execute(message, args) {
 
     const data = getPokemonById(poke.rows[0].pokemon_id);
     const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
-    return message.reply(`Listed **${name}** on the market for **${price.toLocaleString()}** credits!`);
+    return message.reply(`Listed **${name}** on the market for **${price.toLocaleString()}** Cybercoins!`);
   }
 
   if (subcommand === "buy") {
@@ -62,7 +62,7 @@ async function execute(message, args) {
 
       const buyer = await client.query("SELECT balance FROM users WHERE user_id = $1 FOR UPDATE", [userId]);
       if (buyer.rows.length === 0) { await client.query("ROLLBACK"); return message.reply("You haven't started yet!"); }
-      if (buyer.rows[0].balance < l.price) { await client.query("ROLLBACK"); return message.reply("You don't have enough credits!"); }
+      if (buyer.rows[0].balance < l.price) { await client.query("ROLLBACK"); return message.reply("You don't have enough Cybercoins!"); }
 
       await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [l.price, userId]);
       await client.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [l.price, l.seller_id]);
@@ -72,7 +72,7 @@ async function execute(message, args) {
 
       const data = getPokemonById(l.pokemon_id);
       const name = l.nickname || (data ? capitalize(data.name) : `#${l.pokemon_id}`);
-      message.reply(`You bought **${name}** for **${l.price.toLocaleString()}** credits!`);
+      message.reply(`You bought **${name}** for **${l.price.toLocaleString()}** Cybercoins!`);
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       message.reply("Purchase failed. Please try again.");
@@ -140,7 +140,7 @@ async function showListings(message, page = 1, search = null) {
     const name = l.nickname || (data ? capitalize(data.name) : `#${l.pokemon_id}`);
     const shiny = l.shiny ? " ✨" : "";
     const iv = ((l.iv_hp + l.iv_atk + l.iv_def + l.iv_spatk + l.iv_spdef + l.iv_spd) / 186 * 100).toFixed(2);
-    description += `**#${l.listing_id}** — ${shiny}**${name}** | Lv. ${l.level} | IV: ${iv}% | **${l.price.toLocaleString()}** credits\n`;
+    description += `**#${l.listing_id}** — ${shiny}**${name}** | Lv. ${l.level} | IV: ${iv}% | **${l.price.toLocaleString()}** Cybercoins\n`;
   }
 
   const embed = new EmbedBuilder()

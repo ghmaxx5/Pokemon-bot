@@ -102,7 +102,16 @@ async function handleXP(message) {
     const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [message.author.id]);
     if (user.rows.length === 0 || !user.rows[0].selected_pokemon_id) return;
 
-    const xpGain = Math.floor(Math.random() * 10) + 5;
+    let xpGain = Math.floor(Math.random() * 10) + 5;
+
+    const xpBoost = await pool.query(
+      "SELECT id FROM user_boosts WHERE user_id = $1 AND boost_type = 'xp_boost' AND expires_at > NOW() LIMIT 1",
+      [message.author.id]
+    );
+    if (xpBoost.rows.length > 0) {
+      xpGain *= 2;
+    }
+
     const result = await pool.query(
       "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
       [xpGain, user.rows[0].selected_pokemon_id]

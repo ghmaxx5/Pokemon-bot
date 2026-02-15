@@ -26,7 +26,7 @@ async function execute(message, args) {
 
   const embed = new EmbedBuilder()
     .setTitle("Daily Reward!")
-    .setDescription(`You received **${reward}** credits!\nCome back tomorrow for more!`)
+    .setDescription(`You received **${reward}** Cybercoins!\nCome back tomorrow for more!`)
     .setColor(0xf1c40f);
 
   message.channel.send({ embeds: [embed] });
