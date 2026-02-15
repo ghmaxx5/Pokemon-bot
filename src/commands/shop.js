@@ -250,18 +250,18 @@ async function execute(message, args) {
     }
 
     if (item.id === "mega_stone" || item.id === "gmax_ring") {
-      return message.reply(`Use \`p!shop hold ${item.id} <pokemon id>\` to give this item to a Pokemon.`);
+      return message.reply(`Use \`shop hold ${item.id} <pokemon number>\` to give this item to a Pokemon.\nUse the number shown in your Pokemon list.`);
     }
 
     return message.reply(`To use **${item.name}**, see its specific usage instructions.`);
   }
 
   if (subcommand === "hold") {
-    if (args.length < 3) return message.reply("Usage: `p!shop hold <item> <pokemon id>`\nItems: `mega_stone`, `gmax_ring`");
+    if (args.length < 3) return message.reply("Usage: `shop hold <item> <pokemon number>`\nItems: `mega_stone`, `gmax_ring`\nUse the number shown in your Pokemon list.");
 
     const itemName = args[1].toLowerCase();
     const pokemonDbId = parseInt(args[2]);
-    if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon ID.");
+    if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon number (shown in your Pokemon list).");
 
     if (!["mega_stone", "gmax_ring"].includes(itemName)) {
       return message.reply("Only **Mega Stone** and **Gigantamax Ring** can be held by Pokemon.");
@@ -276,7 +276,7 @@ async function execute(message, args) {
     if (poke.rows.length === 0) return message.reply("Pokemon not found in your collection.");
 
     if (poke.rows[0].held_item) {
-      return message.reply(`This Pokemon is already holding a **${SHOP_ITEMS[poke.rows[0].held_item]?.name || poke.rows[0].held_item}**! Use \`p!shop unhold <pokemon id>\` first.`);
+      return message.reply(`This Pokemon is already holding a **${SHOP_ITEMS[poke.rows[0].held_item]?.name || poke.rows[0].held_item}**! Use \`shop unhold <pokemon number>\` first.`);
     }
 
     await pool.query("UPDATE pokemon SET held_item = $1 WHERE id = $2", [itemName, pokemonDbId]);
@@ -289,7 +289,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "unhold") {
-    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `p!shop unhold <pokemon id>`");
+    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `shop unhold <pokemon number>`\nUse the number shown in your Pokemon list.");
     const pokemonDbId = parseInt(args[1]);
 
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
@@ -328,7 +328,7 @@ async function execute(message, args) {
       .setTitle(`${message.author.username}'s Inventory`)
       .setDescription(desc)
       .setColor(0x9b59b6)
-      .setFooter({ text: "Use p!shop use <item> [pokemon id] | p!shop hold <item> <pokemon id>" });
+      .setFooter({ text: "Use shop use <item> [number] | shop hold <item> <number>" });
 
     return message.channel.send({ embeds: [embed] });
   }
@@ -350,7 +350,7 @@ async function showShop(message, user) {
     embed.addFields({ name: `${cat.emoji} ${cat.name}`, value: itemStr, inline: false });
   }
 
-  embed.setFooter({ text: "p!shop buy <item> [qty] | p!shop use <item> [id] | p!shop hold <item> <id> | p!shop inv" });
+  embed.setFooter({ text: "shop buy <item> [qty] | shop use <item> [number] | shop hold <item> <number> | inv" });
 
   message.channel.send({ embeds: [embed] });
 }

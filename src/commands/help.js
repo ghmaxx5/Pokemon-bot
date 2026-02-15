@@ -48,8 +48,9 @@ const COMMAND_CATEGORIES = {
     { name: "shop", desc: "Browse available items" },
     { name: "shop buy", desc: "Buy an item" },
     { name: "shop use", desc: "Use an item on a Pokemon" },
-    { name: "shop hold", desc: "Give an item to a Pokemon" },
-    { name: "shop inv", desc: "View your inventory" }
+    { name: "shop hold <item> <#>", desc: "Give item to Pokemon (use list number)" },
+    { name: "shop unhold <#>", desc: "Remove held item from Pokemon" },
+    { name: "inv / inventory / bag", desc: "View your backpack & held items" }
   ],
   "Server Settings": [
     { name: "server", desc: "View server configuration" },
