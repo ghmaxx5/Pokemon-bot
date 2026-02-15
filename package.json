@@ -11,6 +11,8 @@
   "license": "ISC",
   "dependencies": {
     "@types/node": "^22.13.11",
-    "discord.js": "^14.25.1"
+    "canvas": "^3.2.1",
+    "discord.js": "^14.25.1",
+    "pg": "^8.18.0"
   }
 }

@@ -1,138 +1,185 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
+const fs = require("fs");
+const path = require("path");
+const { initDatabase, pool } = require("./src/database");
+const { loadPokemonData, getPokemonById, getRandomPokemon, getPokemonImage } = require("./src/data/pokemonLoader");
+const { xpForLevel, capitalize } = require("./src/utils/helpers");
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
-const pokemonList = [
-  { name: "pikachu", id: 25 },
-  { name: "charmander", id: 4 },
-  { name: "bulbasaur", id: 1 },
-  { name: "squirtle", id: 7 },
-  { name: "eevee", id: 133 },
-  { name: "jigglypuff", id: 39 },
-  { name: "meowth", id: 52 },
-  { name: "psyduck", id: 54 }
-];
+const commands = new Collection();
+const aliases = new Collection();
+const spawns = new Map();
+const messageCounts = new Map();
 
-let activeSpawn = null;
-const users = {};
+const DEFAULT_PREFIX = "p!";
+const SPAWN_THRESHOLD = 15;
+const SPAWN_COOLDOWN = 30000;
+const spawnCooldowns = new Map();
+const xpCooldowns = new Map();
+const XP_COOLDOWN = 10000;
 
-client.once("ready", () => {
-  console.log("✅ Pokémon bot is online");
+const commandFiles = fs.readdirSync(path.join(__dirname, "src/commands")).filter(f => f.endsWith(".js"));
+for (const file of commandFiles) {
+  const cmd = require(`./src/commands/${file}`);
+  commands.set(cmd.name, cmd);
+  if (cmd.aliases) {
+    for (const alias of cmd.aliases) {
+      aliases.set(alias, cmd.name);
+    }
+  }
+}
+
+console.log(`Loaded ${commands.size} commands`);
+
+async function getPrefix(guildId) {
+  try {
+    const result = await pool.query("SELECT prefix FROM server_config WHERE guild_id = $1", [guildId]);
+    return result.rows.length > 0 ? result.rows[0].prefix : DEFAULT_PREFIX;
+  } catch {
+    return DEFAULT_PREFIX;
+  }
+}
+
+async function getSpawnChannel(guildId) {
+  try {
+    const result = await pool.query("SELECT spawn_channel_id FROM server_config WHERE guild_id = $1", [guildId]);
+    return result.rows.length > 0 ? result.rows[0].spawn_channel_id : null;
+  } catch {
+    return null;
+  }
+}
+
+client.once("ready", async () => {
+  console.log(`Bot is online as ${client.user.tag}`);
+  loadPokemonData();
+  await initDatabase();
+  console.log("Pokemon data loaded and database initialized");
+
+  client.user.setPresence({
+    activities: [{ name: "p!help | Catch Pokemon!", type: 3 }],
+    status: "online"
+  });
 });
 
 client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
+  if (message.author.bot || !message.guild) return;
 
-  const msg = message.content.toLowerCase();
+  try {
+    await handleXP(message);
+    await handleSpawning(message);
 
-  // PING
-  if (msg === "ping") {
-    message.reply("pong 🏓");
-    return;
-  }
+    const prefix = await getPrefix(message.guild.id);
+    if (!message.content.toLowerCase().startsWith(prefix.toLowerCase())) return;
 
-  // CATCH
-  if (msg.startsWith("!c ")) {
-    if (!activeSpawn) return;
+    const content = message.content.slice(prefix.length).trim();
+    const args = content.split(/\s+/);
+    const commandName = args.shift().toLowerCase();
 
-    const guess = msg.slice(3).trim();
+    const command = commands.get(commandName) || commands.get(aliases.get(commandName));
+    if (!command) return;
 
-    if (guess !== activeSpawn.name) {
-      message.reply("❌ Wrong Pokémon!");
-      return;
-    }
-
-    if (!users[message.author.id]) {
-      users[message.author.id] = [];
-    }
-
-    users[message.author.id].push(activeSpawn);
-
-    message.reply(
-      `🎉 You caught **${capitalize(activeSpawn.name)}**!\n⭐ Level: **${activeSpawn.level}**\n🧬 IV: **${activeSpawn.iv}%**`
-    );
-
-    activeSpawn = null;
-    return;
-  }
-
-  // LIST POKÉMON
-  if (msg === "!p") {
-    const list = users[message.author.id];
-    if (!list || list.length === 0) {
-      message.reply("You don’t have any Pokémon yet.");
-      return;
-    }
-
-    let text = "";
-    list.forEach((p, i) => {
-      text += `**${i + 1}.** ${capitalize(p.name)} | Lv. ${p.level}\n`;
-    });
-
-    const embed = new EmbedBuilder()
-      .setTitle("📦 Your Pokémon")
-      .setDescription(text);
-
-    message.channel.send({ embeds: [embed] });
-    return;
-  }
-
-  // INFO
-  if (msg.startsWith("!info ")) {
-    const num = parseInt(msg.split(" ")[1]);
-    const list = users[message.author.id];
-
-    if (!list || !list[num - 1]) {
-      message.reply("Invalid Pokémon number.");
-      return;
-    }
-
-    const p = list[num - 1];
-
-    const embed = new EmbedBuilder()
-      .setTitle(`ℹ️ ${capitalize(p.name)}`)
-      .addFields(
-        { name: "Level", value: p.level.toString(), inline: true },
-        { name: "IV", value: p.iv + "%", inline: true }
-      )
-      .setImage(p.image);
-
-    message.channel.send({ embeds: [embed] });
-    return;
-  }
-
-  // SPAWN (8% chance)
-  if (!activeSpawn && Math.random() < 0.08) {
-    const poke = pokemonList[Math.floor(Math.random() * pokemonList.length)];
-    const level = Math.floor(Math.random() * 100) + 1;
-    const iv = Math.floor(Math.random() * 101);
-
-    const image = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${poke.id}.png`;
-
-    activeSpawn = {
-      name: poke.name,
-      level,
-      iv,
-      image
-    };
-
-    const embed = new EmbedBuilder()
-      .setTitle("A wild Pokémon appeared!")
-      .setImage(image)
-      .setDescription("Type `!c <pokemon name>` to catch it!");
-
-    message.channel.send({ embeds: [embed] });
+    await command.execute(message, args, spawns);
+  } catch (error) {
+    console.error(`Error executing command:`, error);
+    message.reply("An error occurred while executing that command.").catch(() => {});
   }
 });
 
-function capitalize(text) {
-  return text.charAt(0).toUpperCase() + text.slice(1);
+async function handleXP(message) {
+  try {
+    const lastXP = xpCooldowns.get(message.author.id) || 0;
+    if (Date.now() - lastXP < XP_COOLDOWN) return;
+    xpCooldowns.set(message.author.id, Date.now());
+
+    const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [message.author.id]);
+    if (user.rows.length === 0 || !user.rows[0].selected_pokemon_id) return;
+
+    const xpGain = Math.floor(Math.random() * 10) + 5;
+    const result = await pool.query(
+      "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
+      [xpGain, user.rows[0].selected_pokemon_id]
+    );
+
+    if (result.rows.length === 0) return;
+    const p = result.rows[0];
+    const xpNeeded = xpForLevel(p.level);
+
+    if (p.xp >= xpNeeded && p.level < 100) {
+      const newLevel = p.level + 1;
+      await pool.query("UPDATE pokemon SET level = $1, xp = 0 WHERE id = $2", [newLevel, p.id]);
+
+      const data = getPokemonById(p.pokemon_id);
+      const name = p.nickname || (data ? capitalize(data.name) : `#${p.pokemon_id}`);
+
+      const embed = new EmbedBuilder()
+        .setTitle("Level Up!")
+        .setDescription(`Your ${p.shiny ? "✨ " : ""}**${name}** grew to **Level ${newLevel}**!`)
+        .setColor(0x00ff00)
+        .setThumbnail(getPokemonImage(p.pokemon_id, p.shiny));
+
+      message.channel.send({ embeds: [embed] }).catch(() => {});
+
+      if (data && data.evolutionTo && data.evolutionTo.length > 0) {
+        const evo = data.evolutionTo[0];
+        if (evo.level && newLevel >= evo.level) {
+          message.channel.send(`**${name}** is ready to evolve! Use \`p!evolve\` to evolve it!`).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    // silently fail XP handling
+  }
+}
+
+async function handleSpawning(message) {
+  const channelId = message.channel.id;
+  const guildId = message.guild.id;
+
+  const spawnChannel = await getSpawnChannel(guildId);
+  if (spawnChannel && spawnChannel !== channelId) return;
+
+  const lastSpawn = spawnCooldowns.get(channelId) || 0;
+  if (Date.now() - lastSpawn < SPAWN_COOLDOWN) return;
+
+  const count = (messageCounts.get(channelId) || 0) + 1;
+  messageCounts.set(channelId, count);
+
+  if (count >= SPAWN_THRESHOLD) {
+    messageCounts.set(channelId, 0);
+
+    const pokemon = getRandomPokemon();
+    if (!pokemon) return;
+
+    spawns.set(channelId, { pokemonId: pokemon.id, spawnedAt: Date.now() });
+    spawnCooldowns.set(channelId, Date.now());
+
+    const image = getPokemonImage(pokemon.id);
+
+    const embed = new EmbedBuilder()
+      .setTitle("A wild Pokemon has appeared!")
+      .setDescription("Guess the Pokemon and type `p!catch <name>` to catch it!")
+      .setImage(image)
+      .setColor(0xff6600)
+      .setFooter({ text: "Use p!hint for a hint!" });
+
+    message.channel.send({ embeds: [embed] }).catch(() => {});
+
+    setTimeout(() => {
+      if (spawns.has(channelId) && spawns.get(channelId).pokemonId === pokemon.id) {
+        spawns.delete(channelId);
+        const data = getPokemonById(pokemon.id);
+        message.channel.send(`The wild **${data ? capitalize(data.name) : "Pokemon"}** fled!`).catch(() => {});
+      }
+    }, 120000);
+  }
 }
 
 client.login(process.env.TOKEN);
