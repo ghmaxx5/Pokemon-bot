@@ -38,6 +38,7 @@ src/
 │   ├── order.js      # Sort collection
 │   ├── server.js     # Server config (prefix, spawn channel)
 │   ├── shop.js       # Item shop (9 items, hold/unhold, use, bulk buy rare candy)
+│   ├── inventory.js  # Standalone backpack view (items + held items on Pokemon)
 │   ├── profile.js    # Comprehensive trainer profile
 │   ├── admin.js      # Secret admin commands (addcoins, setcoins, addall, spawn)
 │   └── help.js       # Command help
