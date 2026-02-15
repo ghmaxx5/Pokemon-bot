@@ -52,38 +52,294 @@ const PRIMAL_POKEMON = {
 };
 
 const GMAX_POKEMON = {
-  3: { name: "Gigantamax Venusaur", gmaxMove: { name: "G-Max Vine Lash", power: 130, type: "grass" } },
-  6: { name: "Gigantamax Charizard", gmaxMove: { name: "G-Max Wildfire", power: 130, type: "fire" } },
-  9: { name: "Gigantamax Blastoise", gmaxMove: { name: "G-Max Cannonade", power: 130, type: "water" } },
-  12: { name: "Gigantamax Butterfree", gmaxMove: { name: "G-Max Befuddle", power: 110, type: "bug" } },
-  25: { name: "Gigantamax Pikachu", gmaxMove: { name: "G-Max Volt Crash", power: 130, type: "electric" } },
-  52: { name: "Gigantamax Meowth", gmaxMove: { name: "G-Max Gold Rush", power: 110, type: "normal" } },
-  68: { name: "Gigantamax Machamp", gmaxMove: { name: "G-Max Chi Strike", power: 130, type: "fighting" } },
-  94: { name: "Gigantamax Gengar", gmaxMove: { name: "G-Max Terror", power: 130, type: "ghost" } },
-  99: { name: "Gigantamax Kingler", gmaxMove: { name: "G-Max Foam Burst", power: 130, type: "water" } },
-  131: { name: "Gigantamax Lapras", gmaxMove: { name: "G-Max Resonance", power: 130, type: "ice" } },
-  133: { name: "Gigantamax Eevee", gmaxMove: { name: "G-Max Cuddle", power: 110, type: "normal" } },
-  143: { name: "Gigantamax Snorlax", gmaxMove: { name: "G-Max Replenish", power: 130, type: "normal" } },
-  569: { name: "Gigantamax Garbodor", gmaxMove: { name: "G-Max Malodor", power: 130, type: "poison" } },
-  809: { name: "Gigantamax Melmetal", gmaxMove: { name: "G-Max Meltdown", power: 130, type: "steel" } },
-  812: { name: "Gigantamax Rillaboom", gmaxMove: { name: "G-Max Drum Solo", power: 160, type: "grass" } },
-  815: { name: "Gigantamax Cinderace", gmaxMove: { name: "G-Max Fireball", power: 160, type: "fire" } },
-  818: { name: "Gigantamax Inteleon", gmaxMove: { name: "G-Max Hydrosnipe", power: 160, type: "water" } },
-  823: { name: "Gigantamax Corviknight", gmaxMove: { name: "G-Max Wind Rage", power: 130, type: "flying" } },
-  826: { name: "Gigantamax Orbeetle", gmaxMove: { name: "G-Max Gravitas", power: 130, type: "psychic" } },
-  834: { name: "Gigantamax Drednaw", gmaxMove: { name: "G-Max Stonesurge", power: 130, type: "water" } },
-  839: { name: "Gigantamax Coalossal", gmaxMove: { name: "G-Max Volcalith", power: 130, type: "rock" } },
-  841: { name: "Gigantamax Flapple", gmaxMove: { name: "G-Max Tartness", power: 130, type: "grass" } },
-  842: { name: "Gigantamax Appletun", gmaxMove: { name: "G-Max Sweetness", power: 130, type: "grass" } },
-  844: { name: "Gigantamax Sandaconda", gmaxMove: { name: "G-Max Sandblast", power: 130, type: "ground" } },
-  849: { name: "Gigantamax Toxtricity", gmaxMove: { name: "G-Max Stun Shock", power: 130, type: "electric" } },
-  851: { name: "Gigantamax Centiskorch", gmaxMove: { name: "G-Max Centiferno", power: 130, type: "fire" } },
-  858: { name: "Gigantamax Hatterene", gmaxMove: { name: "G-Max Smite", power: 130, type: "fairy" } },
-  861: { name: "Gigantamax Grimmsnarl", gmaxMove: { name: "G-Max Snooze", power: 130, type: "dark" } },
-  869: { name: "Gigantamax Alcremie", gmaxMove: { name: "G-Max Finale", power: 130, type: "fairy" } },
-  879: { name: "Gigantamax Copperajah", gmaxMove: { name: "G-Max Steelsurge", power: 130, type: "steel" } },
-  884: { name: "Gigantamax Duraludon", gmaxMove: { name: "G-Max Depletion", power: 130, type: "dragon" } },
-  892: { name: "Gigantamax Urshifu", gmaxMove: { name: "G-Max One Blow", power: 160, type: "dark" } }
+  3: {
+    name: "Gigantamax Venusaur",
+    gmaxMoves: [
+      { name: "G-Max Vine Lash", power: 130, accuracy: 95, type: "grass" },
+      { name: "Max Ooze", power: 110, accuracy: 100, type: "poison" },
+      { name: "Max Quake", power: 100, accuracy: 90, type: "ground" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  6: {
+    name: "Gigantamax Charizard",
+    gmaxMoves: [
+      { name: "G-Max Wildfire", power: 130, accuracy: 95, type: "fire" },
+      { name: "Max Airstream", power: 120, accuracy: 90, type: "flying" },
+      { name: "Max Wyrmwind", power: 110, accuracy: 90, type: "dragon" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  9: {
+    name: "Gigantamax Blastoise",
+    gmaxMoves: [
+      { name: "G-Max Cannonade", power: 130, accuracy: 95, type: "water" },
+      { name: "Max Hailstorm", power: 110, accuracy: 90, type: "ice" },
+      { name: "Max Steelspike", power: 100, accuracy: 90, type: "steel" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  12: {
+    name: "Gigantamax Butterfree",
+    gmaxMoves: [
+      { name: "G-Max Befuddle", power: 110, accuracy: 95, type: "bug" },
+      { name: "Max Airstream", power: 100, accuracy: 90, type: "flying" },
+      { name: "Max Mindstorm", power: 100, accuracy: 90, type: "psychic" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  25: {
+    name: "Gigantamax Pikachu",
+    gmaxMoves: [
+      { name: "G-Max Volt Crash", power: 130, accuracy: 95, type: "electric" },
+      { name: "Max Strike", power: 110, accuracy: 90, type: "normal" },
+      { name: "Max Steelspike", power: 90, accuracy: 90, type: "steel" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  52: {
+    name: "Gigantamax Meowth",
+    gmaxMoves: [
+      { name: "G-Max Gold Rush", power: 110, accuracy: 95, type: "normal" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Knuckle", power: 90, accuracy: 90, type: "fighting" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  68: {
+    name: "Gigantamax Machamp",
+    gmaxMoves: [
+      { name: "G-Max Chi Strike", power: 130, accuracy: 95, type: "fighting" },
+      { name: "Max Rockfall", power: 110, accuracy: 90, type: "rock" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  94: {
+    name: "Gigantamax Gengar",
+    gmaxMoves: [
+      { name: "G-Max Terror", power: 130, accuracy: 95, type: "ghost" },
+      { name: "Max Ooze", power: 110, accuracy: 90, type: "poison" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  99: {
+    name: "Gigantamax Kingler",
+    gmaxMoves: [
+      { name: "G-Max Foam Burst", power: 130, accuracy: 95, type: "water" },
+      { name: "Max Rockfall", power: 110, accuracy: 90, type: "rock" },
+      { name: "Max Quake", power: 100, accuracy: 90, type: "ground" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  131: {
+    name: "Gigantamax Lapras",
+    gmaxMoves: [
+      { name: "G-Max Resonance", power: 130, accuracy: 95, type: "ice" },
+      { name: "Max Geyser", power: 120, accuracy: 90, type: "water" },
+      { name: "Max Lightning", power: 100, accuracy: 90, type: "electric" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  133: {
+    name: "Gigantamax Eevee",
+    gmaxMoves: [
+      { name: "G-Max Cuddle", power: 110, accuracy: 95, type: "normal" },
+      { name: "Max Starfall", power: 90, accuracy: 90, type: "fairy" },
+      { name: "Max Darkness", power: 90, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  143: {
+    name: "Gigantamax Snorlax",
+    gmaxMoves: [
+      { name: "G-Max Replenish", power: 130, accuracy: 95, type: "normal" },
+      { name: "Max Quake", power: 110, accuracy: 90, type: "ground" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  569: {
+    name: "Gigantamax Garbodor",
+    gmaxMoves: [
+      { name: "G-Max Malodor", power: 130, accuracy: 95, type: "poison" },
+      { name: "Max Quake", power: 110, accuracy: 90, type: "ground" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  809: {
+    name: "Gigantamax Melmetal",
+    gmaxMoves: [
+      { name: "G-Max Meltdown", power: 130, accuracy: 95, type: "steel" },
+      { name: "Max Lightning", power: 110, accuracy: 90, type: "electric" },
+      { name: "Max Quake", power: 100, accuracy: 90, type: "ground" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  812: {
+    name: "Gigantamax Rillaboom",
+    gmaxMoves: [
+      { name: "G-Max Drum Solo", power: 160, accuracy: 95, type: "grass" },
+      { name: "Max Quake", power: 120, accuracy: 90, type: "ground" },
+      { name: "Max Knuckle", power: 100, accuracy: 90, type: "fighting" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  815: {
+    name: "Gigantamax Cinderace",
+    gmaxMoves: [
+      { name: "G-Max Fireball", power: 160, accuracy: 95, type: "fire" },
+      { name: "Max Knuckle", power: 120, accuracy: 90, type: "fighting" },
+      { name: "Max Airstream", power: 100, accuracy: 90, type: "flying" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  818: {
+    name: "Gigantamax Inteleon",
+    gmaxMoves: [
+      { name: "G-Max Hydrosnipe", power: 160, accuracy: 95, type: "water" },
+      { name: "Max Hailstorm", power: 120, accuracy: 90, type: "ice" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  823: {
+    name: "Gigantamax Corviknight",
+    gmaxMoves: [
+      { name: "G-Max Wind Rage", power: 130, accuracy: 95, type: "flying" },
+      { name: "Max Steelspike", power: 120, accuracy: 90, type: "steel" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  826: {
+    name: "Gigantamax Orbeetle",
+    gmaxMoves: [
+      { name: "G-Max Gravitas", power: 130, accuracy: 95, type: "psychic" },
+      { name: "Max Flutterby", power: 110, accuracy: 90, type: "bug" },
+      { name: "Max Starfall", power: 100, accuracy: 90, type: "fairy" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  834: {
+    name: "Gigantamax Drednaw",
+    gmaxMoves: [
+      { name: "G-Max Stonesurge", power: 130, accuracy: 95, type: "water" },
+      { name: "Max Rockfall", power: 120, accuracy: 90, type: "rock" },
+      { name: "Max Quake", power: 100, accuracy: 90, type: "ground" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  839: {
+    name: "Gigantamax Coalossal",
+    gmaxMoves: [
+      { name: "G-Max Volcalith", power: 130, accuracy: 95, type: "rock" },
+      { name: "Max Flare", power: 120, accuracy: 90, type: "fire" },
+      { name: "Max Quake", power: 100, accuracy: 90, type: "ground" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  841: {
+    name: "Gigantamax Flapple",
+    gmaxMoves: [
+      { name: "G-Max Tartness", power: 130, accuracy: 95, type: "grass" },
+      { name: "Max Airstream", power: 110, accuracy: 90, type: "flying" },
+      { name: "Max Wyrmwind", power: 100, accuracy: 90, type: "dragon" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  842: {
+    name: "Gigantamax Appletun",
+    gmaxMoves: [
+      { name: "G-Max Sweetness", power: 130, accuracy: 95, type: "grass" },
+      { name: "Max Wyrmwind", power: 110, accuracy: 90, type: "dragon" },
+      { name: "Max Quake", power: 100, accuracy: 90, type: "ground" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  844: {
+    name: "Gigantamax Sandaconda",
+    gmaxMoves: [
+      { name: "G-Max Sandblast", power: 130, accuracy: 95, type: "ground" },
+      { name: "Max Rockfall", power: 120, accuracy: 90, type: "rock" },
+      { name: "Max Steelspike", power: 100, accuracy: 90, type: "steel" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  849: {
+    name: "Gigantamax Toxtricity",
+    gmaxMoves: [
+      { name: "G-Max Stun Shock", power: 130, accuracy: 95, type: "electric" },
+      { name: "Max Ooze", power: 120, accuracy: 90, type: "poison" },
+      { name: "Max Strike", power: 100, accuracy: 90, type: "normal" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  851: {
+    name: "Gigantamax Centiskorch",
+    gmaxMoves: [
+      { name: "G-Max Centiferno", power: 130, accuracy: 95, type: "fire" },
+      { name: "Max Flutterby", power: 110, accuracy: 90, type: "bug" },
+      { name: "Max Ooze", power: 100, accuracy: 90, type: "poison" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  858: {
+    name: "Gigantamax Hatterene",
+    gmaxMoves: [
+      { name: "G-Max Smite", power: 130, accuracy: 95, type: "fairy" },
+      { name: "Max Mindstorm", power: 120, accuracy: 90, type: "psychic" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  861: {
+    name: "Gigantamax Grimmsnarl",
+    gmaxMoves: [
+      { name: "G-Max Snooze", power: 130, accuracy: 95, type: "dark" },
+      { name: "Max Starfall", power: 120, accuracy: 90, type: "fairy" },
+      { name: "Max Knuckle", power: 100, accuracy: 90, type: "fighting" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  869: {
+    name: "Gigantamax Alcremie",
+    gmaxMoves: [
+      { name: "G-Max Finale", power: 130, accuracy: 95, type: "fairy" },
+      { name: "Max Mindstorm", power: 110, accuracy: 90, type: "psychic" },
+      { name: "Max Starfall", power: 100, accuracy: 90, type: "fairy" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  879: {
+    name: "Gigantamax Copperajah",
+    gmaxMoves: [
+      { name: "G-Max Steelsurge", power: 130, accuracy: 95, type: "steel" },
+      { name: "Max Quake", power: 120, accuracy: 90, type: "ground" },
+      { name: "Max Rockfall", power: 100, accuracy: 90, type: "rock" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  884: {
+    name: "Gigantamax Duraludon",
+    gmaxMoves: [
+      { name: "G-Max Depletion", power: 130, accuracy: 95, type: "dragon" },
+      { name: "Max Steelspike", power: 120, accuracy: 90, type: "steel" },
+      { name: "Max Darkness", power: 100, accuracy: 90, type: "dark" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  },
+  892: {
+    name: "Gigantamax Urshifu",
+    gmaxMoves: [
+      { name: "G-Max One Blow", power: 160, accuracy: 95, type: "dark" },
+      { name: "Max Knuckle", power: 130, accuracy: 90, type: "fighting" },
+      { name: "Max Airstream", power: 110, accuracy: 90, type: "flying" },
+      { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
+    ]
+  }
 };
 
 function canMegaEvolve(pokemonId) {
@@ -104,4 +360,10 @@ function getGmaxData(pokemonId) {
   return GMAX_POKEMON[pokemonId] || null;
 }
 
-module.exports = { MEGA_POKEMON, PRIMAL_POKEMON, GMAX_POKEMON, canMegaEvolve, canGmax, getMegaData, getGmaxData };
+function getGmaxMoves(pokemonId) {
+  const data = GMAX_POKEMON[pokemonId];
+  if (!data || !data.gmaxMoves) return null;
+  return data.gmaxMoves;
+}
+
+module.exports = { MEGA_POKEMON, PRIMAL_POKEMON, GMAX_POKEMON, canMegaEvolve, canGmax, getMegaData, getGmaxData, getGmaxMoves };
