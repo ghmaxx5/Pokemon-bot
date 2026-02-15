@@ -257,14 +257,21 @@ async function execute(message, args) {
   }
 
   if (subcommand === "hold") {
-    if (args.length < 3) return message.reply("Usage: `shop hold <item> <pokemon number>`\nItems: `mega_stone`, `gmax_ring`\nUse the number shown in your Pokemon list.");
+    if (args.length < 3) return message.reply("Usage: `shop hold <item> <pokemon number>`\nItems: `mega stone`, `gmax ring`\nUse the number shown in your Pokemon list.");
 
-    const itemName = args[1].toLowerCase();
-    const pokemonDbId = parseInt(args[2]);
-    if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon number (shown in your Pokemon list).");
+    const pokemonDbId = parseInt(args[args.length - 1]);
+    if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon number at the end (shown in your Pokemon list).");
 
-    if (!["mega_stone", "gmax_ring"].includes(itemName)) {
-      return message.reply("Only **Mega Stone** and **Gigantamax Ring** can be held by Pokemon.");
+    const rawItemName = args.slice(1, -1).join(" ").toLowerCase().trim();
+    const HOLD_ALIASES = {
+      "mega_stone": "mega_stone", "mega stone": "mega_stone", "megastone": "mega_stone", "mega": "mega_stone",
+      "gmax_ring": "gmax_ring", "gmax ring": "gmax_ring", "gmaxring": "gmax_ring", "gmax": "gmax_ring",
+      "gigantamax ring": "gmax_ring", "gigantamax_ring": "gmax_ring", "gigantamax": "gmax_ring", "g-max ring": "gmax_ring"
+    };
+    const itemName = HOLD_ALIASES[rawItemName];
+
+    if (!itemName) {
+      return message.reply("Only **Mega Stone** and **Gigantamax Ring** can be held by Pokemon.\nTry: `shop hold mega stone <number>` or `shop hold gmax ring <number>`");
     }
 
     const inv = await pool.query("SELECT quantity FROM user_inventory WHERE user_id = $1 AND item_id = $2", [userId, itemName]);
