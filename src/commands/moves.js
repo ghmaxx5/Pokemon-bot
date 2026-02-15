@@ -1,4 +1,4 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const { pool } = require("../database");
 const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize, getTypeEmoji } = require("../utils/helpers");
@@ -81,34 +81,62 @@ async function execute(message, args) {
     const collector = reply.createMessageComponentCollector({
       filter: (i) => i.user.id === userId,
       time: 60000,
-      max: 4
+      max: 10
     });
 
     collector.on("collect", async (interaction) => {
-      const moveName = interaction.customId === "move_equip_select"
-        ? interaction.values[0].replace("equip_", "")
-        : null;
+      if (interaction.customId === "move_equip_select") {
+        const moveName = interaction.values[0].replace("equip_", "");
 
-      if (!moveName) return;
+        const current = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
+        const row = current.rows[0];
+        const slots = [row.move1, row.move2, row.move3, row.move4];
 
-      const current = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
-      const row = current.rows[0];
-      const slots = [row.move1, row.move2, row.move3, row.move4];
+        if (slots.includes(moveName)) {
+          return interaction.reply({ content: `**${moveName}** is already equipped!`, ephemeral: true });
+        }
 
-      if (slots.includes(moveName)) {
-        return interaction.reply({ content: `**${moveName}** is already equipped!`, ephemeral: true });
+        let slotIdx = slots.findIndex(s => !s);
+        if (slotIdx === -1) {
+          const replaceRow = new ActionRowBuilder();
+          for (let i = 0; i < 4; i++) {
+            replaceRow.addComponents(
+              new ButtonBuilder()
+                .setCustomId(`replace_${i}_${moveName}`)
+                .setLabel(`Slot ${i + 1}: ${slots[i] || "Empty"}`.substring(0, 80))
+                .setStyle(ButtonStyle.Secondary)
+            );
+          }
+          return interaction.reply({
+            content: `All 4 slots are full! Choose which move to **replace** with **${moveName}**:`,
+            components: [replaceRow],
+            ephemeral: true
+          });
+        }
+
+        const slotCol = `move${slotIdx + 1}`;
+        await pool.query(`UPDATE pokemon SET ${slotCol} = $1 WHERE id = $2`, [moveName, p.id]);
+
+        await interaction.reply({
+          content: `${getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal")} **${pokeName}** equipped **${moveName}** in slot ${slotIdx + 1}!`,
+          ephemeral: true
+        });
+      } else if (interaction.customId.startsWith("replace_")) {
+        const parts = interaction.customId.split("_");
+        const slotIdx = parseInt(parts[1]);
+        const moveName = parts.slice(2).join("_");
+
+        const current = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
+        const oldMove = current.rows[0][`move${slotIdx + 1}`];
+
+        const slotCol = `move${slotIdx + 1}`;
+        await pool.query(`UPDATE pokemon SET ${slotCol} = $1 WHERE id = $2`, [moveName, p.id]);
+
+        await interaction.update({
+          content: `${getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal")} **${pokeName}** replaced **${oldMove || "empty"}** with **${moveName}** in slot ${slotIdx + 1}!`,
+          components: []
+        });
       }
-
-      let slotIdx = slots.findIndex(s => !s);
-      if (slotIdx === -1) slotIdx = 3;
-
-      const slotCol = `move${slotIdx + 1}`;
-      await pool.query(`UPDATE pokemon SET ${slotCol} = $1 WHERE id = $2`, [moveName, p.id]);
-
-      await interaction.reply({
-        content: `${getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal")} **${pokeName}** equipped **${moveName}** in slot ${slotIdx + 1}!`,
-        ephemeral: true
-      });
     });
   } else {
     message.channel.send({ embeds: [embed] });

@@ -159,7 +159,7 @@ async function execute(message, args) {
     return message.reply(
       "**⚔️ Battle Commands:**\n" +
       "`p!battle @user` - Challenge a trainer (3v3)\n" +
-      "`p!battle ai` - Fight an AI opponent\n"
+      "`p!battle ai` - Fight an AI trainer (3v3)\n"
     );
   }
 
@@ -339,7 +339,8 @@ async function collectTeamSelection(message, battle, playerId, pokemonRows, sele
           components: []
         });
 
-        checkBothReady(message, battle);
+        const readyFn = battle.isAI ? checkBothReadyAI : checkBothReady;
+        readyFn(message, battle);
         resolve();
       } else {
         await interaction.reply({
@@ -363,7 +364,8 @@ async function collectTeamSelection(message, battle, playerId, pokemonRows, sele
             .setColor(0xe67e22)],
           components: []
         }).catch(() => {});
-        checkBothReady(message, battle);
+        const readyFn = battle.isAI ? checkBothReadyAI : checkBothReady;
+        readyFn(message, battle);
         resolve();
       }
     });
@@ -424,21 +426,7 @@ async function checkBothReady(message, battle) {
   return startBattleTurn(message, battle, battle.channelId, "Battle begins! Choose your move!");
 }
 
-async function startAIBattle(message, userId, channelId) {
-  if (activeBattles.has(channelId)) return message.reply("There's already a battle in this channel!");
-
-  const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  if (user.rows.length === 0) return message.reply("You haven't started yet!");
-  if (!user.rows[0].selected_pokemon_id) return message.reply("You need to select a Pokemon first! Use `p!select <id>`.");
-
-  const p1 = await pool.query("SELECT * FROM pokemon WHERE id = $1", [user.rows[0].selected_pokemon_id]);
-  if (p1.rows.length === 0) return message.reply("Selected Pokemon not found.");
-
-  const p1Data = getPokemonById(p1.rows[0].pokemon_id);
-  const playerLevel = p1.rows[0].level;
-
-  const aiLevel = Math.max(5, playerLevel + Math.floor(Math.random() * 11) - 5);
-
+function generateAIPokemon(playerLevel) {
   const { generateIVs, randomNature } = require("../utils/helpers");
   const totalPokemon = 1025;
   let aiPokemonId, aiData, attempts = 0;
@@ -448,13 +436,14 @@ async function startAIBattle(message, userId, channelId) {
     attempts++;
   } while ((!aiData || !aiData.baseStats) && attempts < 50);
 
-  if (!aiData) return message.reply("Failed to generate AI opponent. Try again!");
+  if (!aiData) return null;
 
+  const aiLevel = Math.max(5, playerLevel + Math.floor(Math.random() * 11) - 5);
   const aiIVs = generateIVs();
   const aiShiny = Math.random() < 0.01;
 
   const aiRow = {
-    id: -1, user_id: "AI_TRAINER", pokemon_id: aiPokemonId,
+    id: -(Math.floor(Math.random() * 100000) + 1), user_id: "AI_TRAINER", pokemon_id: aiPokemonId,
     level: aiLevel, shiny: aiShiny,
     iv_hp: aiIVs.hp, iv_atk: aiIVs.atk, iv_def: aiIVs.def,
     iv_spatk: aiIVs.spatk, iv_spdef: aiIVs.spdef, iv_spd: aiIVs.spd,
@@ -467,43 +456,118 @@ async function startAIBattle(message, userId, channelId) {
   if (aiCanGmax && Math.random() < 0.4) aiRow.held_item = "gmax_ring";
   else if (aiCanMega && Math.random() < 0.4) aiRow.held_item = "mega_stone";
 
-  const p1Prepared = preparePokemonForBattle(p1.rows[0], p1Data);
-  const p2Prepared = preparePokemonForBattle(aiRow, aiData);
+  return { row: aiRow, data: aiData };
+}
+
+async function startAIBattle(message, userId, channelId) {
+  if (activeBattles.has(channelId)) return message.reply("There's already a battle in this channel!");
+
+  const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
+  if (user.rows.length === 0) return message.reply("You haven't started yet!");
+
+  const p1Pokemon = await pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC LIMIT 20", [userId]);
+  if (p1Pokemon.rows.length < 1) return message.reply("You need at least 1 Pokemon to battle!");
+
+  const avgLevel = Math.floor(p1Pokemon.rows.slice(0, 3).reduce((s, p) => s + p.level, 0) / Math.min(3, p1Pokemon.rows.length));
+
+  const aiTeamData = [];
+  for (let i = 0; i < 3; i++) {
+    const ai = generateAIPokemon(avgLevel);
+    if (ai) aiTeamData.push(ai);
+  }
+  if (aiTeamData.length === 0) return message.reply("Failed to generate AI opponent. Try again!");
 
   const battle = {
     challenger: userId,
     opponent: "AI_TRAINER",
-    status: "active",
+    status: "pending",
     channelId,
-    is3v3: false,
-    p1Team: [p1Prepared],
-    p2Team: [p2Prepared],
-    p1Active: p1Prepared,
-    p2Active: p2Prepared,
-    turn: userId,
+    is3v3: true,
+    p1Team: [],
+    p2Team: [],
+    p1Active: null,
+    p2Active: null,
+    p1Selection: [],
+    p2Selection: [],
+    p1Pokemon: p1Pokemon.rows,
+    p2Pokemon: [],
+    turn: null,
     isAI: true,
-    aiDifficulty: Math.min(1, playerLevel / 100 + 0.2)
+    aiTeamData,
+    aiDifficulty: Math.min(1, avgLevel / 100 + 0.2)
   };
 
   activeBattles.set(channelId, battle);
 
-  const embed = new EmbedBuilder()
-    .setTitle("🤖 AI Battle Initiated!")
+  const aiNames = aiTeamData.map(a => `${a.row.shiny ? "✨ " : ""}🤖 ${capitalize(a.data.name)} (Lv.${a.row.level})`).join(", ");
+
+  const challengeEmbed = new EmbedBuilder()
+    .setTitle("🤖 AI Trainer Challenge!")
     .setDescription(
-      `A wild AI Trainer appears with their **${getBattleName(p2Prepared)}**!\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-      `${p1.rows[0].shiny ? "✨ " : ""}**${getBattleName(p1Prepared)}** (Lv. ${p1.rows[0].level}) — HP: ${p1Prepared.maxHp}\n` +
-      `vs\n` +
-      `${aiShiny ? "✨ " : ""}🤖 **${getBattleName(p2Prepared)}** (Lv. ${aiLevel}) — HP: ${p2Prepared.maxHp}\n` +
+      `An AI Trainer appears with a team of **${aiTeamData.length} Pokemon**!\n\n` +
+      `🤖 AI Team: ${aiNames}\n\n` +
+      `Select your team of 3 Pokemon to battle!`
+    )
+    .setColor(0x9b59b6)
+    .setFooter({ text: "3v3 Battle — Same rules as PvP!" });
+
+  await message.channel.send({ embeds: [challengeEmbed] });
+
+  battle.status = "selecting";
+  await collectTeamSelection(message, battle, userId, p1Pokemon.rows, "p1Selection", "Your Team");
+
+  battle.p2Selection = aiTeamData.map(a => a.row.id);
+
+  if (battle.status !== "active") {
+    checkBothReadyAI(message, battle);
+  }
+}
+
+async function checkBothReadyAI(message, battle) {
+  if (battle.p1Selection.length === 0) return;
+  if (battle.status === "active") return;
+
+  battle.status = "active";
+
+  const p1Rows = await Promise.all(battle.p1Selection.map(async id => {
+    const r = await pool.query("SELECT * FROM pokemon WHERE id = $1", [id]);
+    return r.rows[0];
+  }));
+
+  battle.p1Team = p1Rows.filter(Boolean).map(row => {
+    const data = getPokemonById(row.pokemon_id);
+    return data ? preparePokemonForBattle(row, data) : null;
+  }).filter(Boolean);
+
+  battle.p2Team = battle.aiTeamData.map(a => preparePokemonForBattle(a.row, a.data));
+
+  if (battle.p1Team.length === 0 || battle.p2Team.length === 0) {
+    activeBattles.delete(battle.channelId);
+    return message.channel.send("Battle cancelled — couldn't load Pokemon data.");
+  }
+
+  battle.p1Active = battle.p1Team[0];
+  battle.p2Active = battle.p2Team[0];
+  battle.turn = battle.challenger;
+
+  const p1Names = battle.p1Team.map(p => getBattleName(p)).join(", ");
+  const p2Names = battle.p2Team.map(p => `🤖 ${getBattleName(p)}`).join(", ");
+
+  const revealEmbed = new EmbedBuilder()
+    .setTitle("⚔️ 3v3 AI Battle Begins!")
+    .setDescription(
+      `**<@${battle.challenger}>'s Team:**\n${p1Names}\n\n` +
+      `**🤖 AI Trainer's Team:**\n${p2Names}\n\n` +
+      `First Pokemon sent out!\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
     )
     .setColor(0x9b59b6)
-    .setThumbnail(getPokemonImage(p1.rows[0].pokemon_id, p1.rows[0].shiny))
-    .setImage(getPokemonImage(aiPokemonId, aiShiny));
+    .setThumbnail(getPokeImage(battle.p1Active))
+    .setImage(getPokeImage(battle.p2Active));
 
-  await message.channel.send({ embeds: [embed] });
-  await new Promise(r => setTimeout(r, 1500));
-  return startBattleTurn(message, battle, channelId, "AI Battle begins! Choose your move!");
+  await message.channel.send({ embeds: [revealEmbed] });
+  await new Promise(r => setTimeout(r, 2000));
+  return startBattleTurn(message, battle, battle.channelId, "AI Battle begins! Choose your move!");
 }
 
 async function startBattleTurn(message, battle, channelId, actionLog) {

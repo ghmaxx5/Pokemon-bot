@@ -39,9 +39,10 @@ const COMMAND_CATEGORIES = {
   ],
   "Battling": [
     { name: "battle @user", desc: "Challenge to a 3v3 battle" },
-    { name: "battle ai", desc: "Fight an AI opponent" },
+    { name: "battle ai", desc: "Fight an AI trainer (3v3)" },
     { name: "moves / ms", desc: "View & equip moves for your Pokemon" },
-    { name: "moves set <slot> <move>", desc: "Equip a move to a slot (1-4)" }
+    { name: "moves set <slot> <move>", desc: "Equip a move to a slot (1-4)" },
+    { name: "moveinfo / mi <move>", desc: "View detailed move info" }
   ],
   "Shop": [
     { name: "shop", desc: "Browse available items" },

@@ -31,8 +31,9 @@ src/
 │   ├── trade.js      # Trading system
 │   ├── market.js     # Buy/sell marketplace
 │   ├── battle.js     # 3v3 PvP + AI battles (team selection, emoji accept/reject, equipped moves, images, mega/gmax, switch)
-│   ├── moves.js      # View available moves, equip moves to slots 1-4
-│   ├── dex.js        # Pokedex with form buttons (shiny, mega, gmax, evolution)
+│   ├── moves.js      # View available moves, equip moves to slots 1-4 (with replace UI)
+│   ├── moveinfo.js   # Detailed move info lookup (power, accuracy, category, description)
+│   ├── dex.js        # Pokedex with form buttons (shiny, mega, gmax, evolution) + form images
 │   ├── leaderboard.js # Leaderboards
 │   ├── order.js      # Sort collection
 │   ├── server.js     # Server config (prefix, spawn channel)
@@ -60,12 +61,12 @@ src/
 - **6-stat IV System:** HP, ATK, DEF, SpATK, SpDEF, SPD (0-31 each)
 - **Leveling:** XP from chatting, level ups with move learning notifications, XP Booster support
 - **Moveset System:** Pokemon learn moves at specific levels. p!moves shows all available moves. Equip any 4 into battle slots. Moves used in duels.
-- **Evolution:** Level-based and item-based evolution
+- **Evolution:** Auto-evolve on level-up (both XP and rare candy), item-based evolution via p!evolve
 - **Shiny Pokemon:** 1/4096 chance (doubled with Shiny Charm boost)
 - **Mega Evolution:** 46 Mega Pokemon + 2 Primal Reversions (Showdown-style, doesn't waste turn)
 - **Gigantamax:** 33 G-Max Pokemon with full 4-move G-Max movesets per Pokemon, 3-turn duration, 1.5x HP
-- **Battle System:** 3v3 PvP (team selection, hidden picks, emoji accept/reject) + 1v1 AI battles. Equipped moves, type effectiveness, mega/gmax transforms, Pokemon switching on faint.
-- **AI Battles:** Adaptive difficulty AI that picks from all 1025 Pokemon, level-matched, smart move selection
+- **Battle System:** 3v3 PvP and AI (team selection, hidden picks, emoji accept/reject). Equipped moves, type effectiveness, mega/gmax transforms, Pokemon switching on faint.
+- **AI Battles:** 3v3 against adaptive AI with team of 3 random Pokemon, level-matched, smart move selection
 - **Shop System:** 9 items, bulk buy support (p!shop buy rare candy 10), immediate rare candy application
 - **Held Items:** Mega Stone and G-Max Ring (1 item per Pokemon)
 - **Trading:** Player-to-player trading with confirmation
@@ -79,13 +80,13 @@ src/
 
 ## Commands (Default prefix: p!)
 p!start, p!catch, p!pokemon, p!info, p!select, p!hint, p!evolve,
-p!trade, p!market, p!battle, p!battle ai, p!moves, p!dex, p!daily,
-p!balance, p!give, p!favorite, p!nickname, p!release, p!leaderboard,
-p!server, p!shop, p!profile, p!admin, p!help
+p!trade, p!market, p!battle, p!battle ai, p!moves, p!moveinfo, p!dex,
+p!daily, p!balance, p!give, p!favorite, p!nickname, p!release,
+p!leaderboard, p!server, p!shop, p!profile, p!admin, p!help
 
 ## Battle Mechanics
 - **3v3 PvP:** Both trainers select 3 Pokemon. Choices hidden from opponent. Accept/reject via buttons. On faint, choose next Pokemon.
-- **AI Battles:** 1v1 against adaptive AI. AI picks from all 1025 Pokemon, level-matched ±5.
+- **AI Battles:** 3v3 against adaptive AI. AI generates team of 3, player selects team, same flow as PvP.
 - **Equipped Moves:** Pokemon use their 4 equipped moves in battle (p!moves to set up)
 - **Switching:** In 3v3, switch active Pokemon during your turn
 - **Mega Evolution:** Player selects Mega Evolve → then picks a move (doesn't waste turn)
@@ -110,3 +111,8 @@ p!server, p!shop, p!profile, p!admin, p!help
 - 2026-02-15: Move learning notifications on level-up
 - 2026-02-15: Battle system uses equipped moves from DB
 - 2026-02-15: Revamped Pokédex: name-based lookup with interactive buttons for Shiny, Mega, G-Max, Evolution forms
+- 2026-02-15: AI battles upgraded to 3v3 (same as PvP) with team selection
+- 2026-02-15: Auto-evolve on level-up (XP and rare candy)
+- 2026-02-15: Move dropdown now lets you replace equipped moves when all 4 slots full
+- 2026-02-15: Added p!moveinfo command for detailed move descriptions
+- 2026-02-15: Dex Mega/G-Max buttons now show form-specific artwork images

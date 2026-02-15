@@ -105,6 +105,10 @@ function buildShinyEmbed(data, caught) {
   return embed;
 }
 
+function getFormName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/\s+/g, "-");
+}
+
 function buildMegaEmbed(data, megaData) {
   const typeStr = megaData.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" / ");
 
@@ -114,6 +118,11 @@ function buildMegaEmbed(data, megaData) {
     .join(" | ");
 
   const label = megaData.isPrimal ? "Primal Reversion" : "Mega Evolution";
+  let formSuffix = megaData.isPrimal ? "-primal" : "-mega";
+  const megaNameLower = megaData.name.toLowerCase();
+  if (megaNameLower.includes(" x")) formSuffix = "-mega-x";
+  else if (megaNameLower.includes(" y")) formSuffix = "-mega-y";
+  const megaImage = `https://img.pokemondb.net/artwork/large/${getFormName(data.name)}${formSuffix}.jpg`;
 
   const embed = new EmbedBuilder()
     .setTitle(`#${data.id} — ${megaData.name}`)
@@ -123,7 +132,7 @@ function buildMegaEmbed(data, megaData) {
       { name: "Stat Boosts", value: boostStr || "None", inline: false },
       { name: "Requires", value: megaData.isPrimal ? "Primal Orb" : "Mega Stone", inline: true }
     )
-    .setImage(`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${data.id}.png`)
+    .setImage(megaImage)
     .setColor(0x9b59b6)
     .setFooter({ text: `🔮 ${label}` });
 
@@ -135,6 +144,8 @@ function buildGmaxEmbed(data, gmaxData) {
     .map(m => `${getTypeEmoji(m.type)} **${m.name}** — Power: ${m.power || "—"} | Acc: ${m.accuracy}%`)
     .join("\n");
 
+  const gmaxImage = `https://img.pokemondb.net/artwork/large/${getFormName(data.name)}-gigantamax.jpg`;
+
   const embed = new EmbedBuilder()
     .setTitle(`#${data.id} — ${gmaxData.name}`)
     .setDescription(`Gigantamax Form\n**Duration:** 3 turns | **HP:** 1.5x`)
@@ -142,7 +153,7 @@ function buildGmaxEmbed(data, gmaxData) {
       { name: "G-Max Moves", value: movesStr, inline: false },
       { name: "Requires", value: "G-Max Ring (held item)", inline: true }
     )
-    .setImage(`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${data.id}.png`)
+    .setImage(gmaxImage)
     .setColor(0xe91e63)
     .setFooter({ text: "💥 Gigantamax Form" });
 

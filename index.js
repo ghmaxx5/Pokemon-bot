@@ -126,8 +126,9 @@ async function handleXP(message) {
       const newLevel = p.level + 1;
       await pool.query("UPDATE pokemon SET level = $1, xp = 0 WHERE id = $2", [newLevel, p.id]);
 
-      const data = getPokemonById(p.pokemon_id);
-      const name = p.nickname || (data ? capitalize(data.name) : `#${p.pokemon_id}`);
+      let currentPokemonId = p.pokemon_id;
+      const data = getPokemonById(currentPokemonId);
+      const name = p.nickname || (data ? capitalize(data.name) : `#${currentPokemonId}`);
 
       const newMoves = data ? getNewMovesAtLevel(data.types, newLevel) : [];
       let moveText = "";
@@ -141,14 +142,29 @@ async function handleXP(message) {
         .setTitle("Level Up!")
         .setDescription(`Your ${p.shiny ? "✨ " : ""}**${name}** grew to **Level ${newLevel}**!${moveText}`)
         .setColor(0x00ff00)
-        .setThumbnail(getPokemonImage(p.pokemon_id, p.shiny));
+        .setThumbnail(getPokemonImage(currentPokemonId, p.shiny));
 
       message.channel.send({ embeds: [embed] }).catch(() => {});
 
       if (data && data.evolutionTo && data.evolutionTo.length > 0) {
         const evo = data.evolutionTo[0];
         if (evo.level && newLevel >= evo.level) {
-          message.channel.send(`**${name}** is ready to evolve! Use \`p!evolve\` to evolve it!`).catch(() => {});
+          const { getPokemonByName } = require("./src/data/pokemonLoader");
+          const evoTarget = getPokemonByName(evo.to);
+          if (evoTarget) {
+            await pool.query("UPDATE pokemon SET pokemon_id = $1, nickname = NULL WHERE id = $2", [evoTarget.id, p.id]);
+            await pool.query("INSERT INTO pokedex (user_id, pokemon_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [message.author.id, evoTarget.id]);
+
+            const evoEmbed = new EmbedBuilder()
+              .setTitle("Congratulations! Your Pokémon evolved!")
+              .setDescription(
+                `Your ${p.shiny ? "✨ " : ""}**${name}** evolved into **${capitalize(evoTarget.name)}**!`
+              )
+              .setColor(0x9b59b6)
+              .setImage(getPokemonImage(evoTarget.id, p.shiny));
+
+            message.channel.send({ embeds: [evoEmbed] }).catch(() => {});
+          }
         }
       }
     }

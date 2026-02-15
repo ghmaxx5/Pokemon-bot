@@ -66,10 +66,11 @@ async function execute(message, args) {
 
         const data = getPokemonById(poke.rows[0].pokemon_id);
         const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+        const newLevel = currentLevel + levelsToAdd;
 
         const { getAvailableMoves } = require("../data/learnsets");
         const oldMoves = getAvailableMoves(data.types, currentLevel);
-        const newMoves = getAvailableMoves(data.types, currentLevel + levelsToAdd);
+        const newMoves = getAvailableMoves(data.types, newLevel);
         const learnedMoves = newMoves.filter(m => !oldMoves.some(om => om.name === m.name));
 
         let moveText = "";
@@ -81,14 +82,38 @@ async function execute(message, args) {
             "\nUse `p!moves` to view and equip!";
         }
 
+        let evoText = "";
+        const { getPokemonByName } = require("../data/pokemonLoader");
+        let currentData = data;
+        let evoChainDone = false;
+        while (currentData && !evoChainDone) {
+          evoChainDone = true;
+          if (currentData.evolutionTo && currentData.evolutionTo.length > 0) {
+            for (const evo of currentData.evolutionTo) {
+              if (evo.level && newLevel >= evo.level) {
+                const evoTarget = getPokemonByName(evo.to);
+                if (evoTarget) {
+                  await pool.query("UPDATE pokemon SET pokemon_id = $1, nickname = NULL WHERE id = $2", [evoTarget.id, selectedId]);
+                  await pool.query("INSERT INTO pokedex (user_id, pokemon_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [userId, evoTarget.id]);
+                  const prevName = capitalize(currentData.name);
+                  evoText += `\n🎉 **${prevName}** evolved into **${capitalize(evoTarget.name)}**!`;
+                  currentData = evoTarget;
+                  evoChainDone = false;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
         const embed = new EmbedBuilder()
           .setTitle("🍬 Rare Candies Used!")
           .setDescription(
             `Used **${levelsToAdd}x Rare Candy** on **${name}**!\n` +
-            `Level: **${currentLevel}** → **${currentLevel + levelsToAdd}**\n` +
+            `Level: **${currentLevel}** → **${newLevel}**\n` +
             `Cost: **${actualCost.toLocaleString()}** Cybercoins\n` +
             `New balance: **${(user.rows[0].balance - actualCost).toLocaleString()}** Cybercoins` +
-            moveText
+            moveText + evoText
           )
           .setColor(0x2ecc71);
 
