@@ -32,7 +32,7 @@ src/
 │   ├── market.js     # Buy/sell marketplace
 │   ├── battle.js     # 3v3 PvP + AI battles (team selection, emoji accept/reject, equipped moves, images, mega/gmax, switch)
 │   ├── moves.js      # View available moves, equip moves to slots 1-4
-│   ├── dex.js        # Pokedex
+│   ├── dex.js        # Pokedex with form buttons (shiny, mega, gmax, evolution)
 │   ├── leaderboard.js # Leaderboards
 │   ├── order.js      # Sort collection
 │   ├── server.js     # Server config (prefix, spawn channel)
@@ -70,7 +70,7 @@ src/
 - **Held Items:** Mega Stone and G-Max Ring (1 item per Pokemon)
 - **Trading:** Player-to-player trading with confirmation
 - **Market:** Buy/sell Pokemon for Cybercoins
-- **Pokedex:** Track caught species
+- **Pokédex:** Name-based lookup with interactive buttons for Shiny, Mega, G-Max, and Evolution forms
 - **Trainer Profiles:** Comprehensive stats display
 - **Pokemon Info Cards:** Type, region, bigger image, equipped moves, IVs
 - **Server Config:** Custom prefix, spawn channels
@@ -109,3 +109,4 @@ p!server, p!shop, p!profile, p!admin, p!help
 - 2026-02-15: Enhanced info card with type, region, bigger image, equipped moves display
 - 2026-02-15: Move learning notifications on level-up
 - 2026-02-15: Battle system uses equipped moves from DB
+- 2026-02-15: Revamped Pokédex: name-based lookup with interactive buttons for Shiny, Mega, G-Max, Evolution forms

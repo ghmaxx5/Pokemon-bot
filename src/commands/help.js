@@ -17,7 +17,7 @@ const COMMAND_CATEGORIES = {
     { name: "nickname / nn", desc: "Set a nickname for a Pokemon" },
     { name: "release", desc: "Release a Pokemon (permanent)" },
     { name: "evolve", desc: "Evolve your Pokemon" },
-    { name: "dex", desc: "View your Pokedex progress" }
+    { name: "dex <name>", desc: "View Pokédex entry (with form buttons)" }
   ],
   "Economy": [
     { name: "balance / bal", desc: "Check your Cybercoin balance" },
