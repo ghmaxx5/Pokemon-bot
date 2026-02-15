@@ -3,7 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const { initDatabase, pool } = require("./src/database");
 const { loadPokemonData, getPokemonById, getRandomPokemon, getPokemonImage } = require("./src/data/pokemonLoader");
-const { xpForLevel, capitalize } = require("./src/utils/helpers");
+const { xpForLevel, capitalize, getTypeEmoji } = require("./src/utils/helpers");
+const { getNewMovesAtLevel } = require("./src/data/learnsets");
 
 const client = new Client({
   intents: [
@@ -128,9 +129,17 @@ async function handleXP(message) {
       const data = getPokemonById(p.pokemon_id);
       const name = p.nickname || (data ? capitalize(data.name) : `#${p.pokemon_id}`);
 
+      const newMoves = data ? getNewMovesAtLevel(data.types, newLevel) : [];
+      let moveText = "";
+      if (newMoves.length > 0) {
+        moveText = "\n\n**New Moves Learned:**\n" +
+          newMoves.map(m => `${getTypeEmoji(m.type)} **${m.name}** (${capitalize(m.type)} | Pow: ${m.power} | Acc: ${m.accuracy}%)`).join("\n") +
+          "\n\nUse `p!moves` to view and equip moves!";
+      }
+
       const embed = new EmbedBuilder()
         .setTitle("Level Up!")
-        .setDescription(`Your ${p.shiny ? "✨ " : ""}**${name}** grew to **Level ${newLevel}**!`)
+        .setDescription(`Your ${p.shiny ? "✨ " : ""}**${name}** grew to **Level ${newLevel}**!${moveText}`)
         .setColor(0x00ff00)
         .setThumbnail(getPokemonImage(p.pokemon_id, p.shiny));
 

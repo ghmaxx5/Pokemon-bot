@@ -38,9 +38,10 @@ const COMMAND_CATEGORIES = {
     { name: "trade cancel", desc: "Cancel the trade" }
   ],
   "Battling": [
-    { name: "battle @user", desc: "Challenge someone to battle" },
-    { name: "battle accept", desc: "Accept a battle challenge" },
-    { name: "battle decline", desc: "Decline a battle challenge" }
+    { name: "battle @user", desc: "Challenge to a 3v3 battle" },
+    { name: "battle ai", desc: "Fight an AI opponent" },
+    { name: "moves / ms", desc: "View & equip moves for your Pokemon" },
+    { name: "moves set <slot> <move>", desc: "Equip a move to a slot (1-4)" }
   ],
   "Shop": [
     { name: "shop", desc: "Browse available items" },

@@ -17,32 +17,104 @@ async function execute(message, args) {
   const subcommand = args[0].toLowerCase();
 
   if (subcommand === "buy") {
-    if (!args[1]) return message.reply("Usage: `p!shop buy <item name>`\nUse `p!shop` to see available items.");
+    if (!args[1]) return message.reply("Usage: `p!shop buy <item name> [quantity]`\nUse `p!shop` to see available items.");
 
-    const itemKey = args.slice(1).join("_").toLowerCase().replace(/\s+/g, "_");
+    const lastArg = args[args.length - 1];
+    let quantity = 1;
+    let nameArgs = args.slice(1);
+
+    if (!isNaN(lastArg) && parseInt(lastArg) > 0 && args.length > 2) {
+      quantity = parseInt(lastArg);
+      nameArgs = args.slice(1, -1);
+    }
+
+    const itemKey = nameArgs.join("_").toLowerCase().replace(/\s+/g, "_");
+    const itemNameLower = nameArgs.join(" ").toLowerCase();
     const item = Object.values(SHOP_ITEMS).find(i =>
-      i.id === itemKey || i.name.toLowerCase() === args.slice(1).join(" ").toLowerCase()
+      i.id === itemKey || i.name.toLowerCase() === itemNameLower
     );
 
     if (!item) return message.reply("Item not found! Use `p!shop` to see available items.");
-    if (user.rows[0].balance < item.price) {
-      return message.reply(`You need **${item.price.toLocaleString()}** Cybercoins but only have **${user.rows[0].balance.toLocaleString()}**!`);
+
+    const totalCost = item.price * quantity;
+    if (user.rows[0].balance < totalCost) {
+      return message.reply(`You need **${totalCost.toLocaleString()}** Cybercoins (${quantity}x ${item.name}) but only have **${user.rows[0].balance.toLocaleString()}**!`);
+    }
+
+    if (item.id === "rare_candy" && quantity > 1) {
+      const selectedId = user.rows[0].selected_pokemon_id;
+      if (!selectedId) return message.reply("Select a Pokemon first to use Rare Candies! Use `p!select <id>`.");
+
+      const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [selectedId, userId]);
+      if (poke.rows.length === 0) return message.reply("Selected Pokemon not found.");
+      if (poke.rows[0].level >= 100) return message.reply("That Pokemon is already max level!");
+
+      const currentLevel = poke.rows[0].level;
+      const levelsToAdd = Math.min(quantity, 100 - currentLevel);
+      const actualCost = item.price * levelsToAdd;
+
+      if (user.rows[0].balance < actualCost) {
+        return message.reply(`You need **${actualCost.toLocaleString()}** Cybercoins for ${levelsToAdd} Rare Candies but only have **${user.rows[0].balance.toLocaleString()}**!`);
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [actualCost, userId]);
+        await client.query("UPDATE pokemon SET level = $1, xp = 0 WHERE id = $2", [currentLevel + levelsToAdd, selectedId]);
+        await client.query("COMMIT");
+
+        const data = getPokemonById(poke.rows[0].pokemon_id);
+        const name = poke.rows[0].nickname || (data ? capitalize(data.name) : `#${poke.rows[0].pokemon_id}`);
+
+        const { getAvailableMoves } = require("../data/learnsets");
+        const oldMoves = getAvailableMoves(data.types, currentLevel);
+        const newMoves = getAvailableMoves(data.types, currentLevel + levelsToAdd);
+        const learnedMoves = newMoves.filter(m => !oldMoves.some(om => om.name === m.name));
+
+        let moveText = "";
+        if (learnedMoves.length > 0) {
+          const { getTypeEmoji } = require("../utils/helpers");
+          moveText = "\n\n**New Moves Available:**\n" +
+            learnedMoves.slice(0, 10).map(m => `${getTypeEmoji(m.type)} **${m.name}** (${capitalize(m.type)} | Pow: ${m.power})`).join("\n") +
+            (learnedMoves.length > 10 ? `\n... and ${learnedMoves.length - 10} more!` : "") +
+            "\nUse `p!moves` to view and equip!";
+        }
+
+        const embed = new EmbedBuilder()
+          .setTitle("🍬 Rare Candies Used!")
+          .setDescription(
+            `Used **${levelsToAdd}x Rare Candy** on **${name}**!\n` +
+            `Level: **${currentLevel}** → **${currentLevel + levelsToAdd}**\n` +
+            `Cost: **${actualCost.toLocaleString()}** Cybercoins\n` +
+            `New balance: **${(user.rows[0].balance - actualCost).toLocaleString()}** Cybercoins` +
+            moveText
+          )
+          .setColor(0x2ecc71);
+
+        return message.channel.send({ embeds: [embed] });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        return message.reply("Purchase failed. Please try again.");
+      } finally {
+        client.release();
+      }
     }
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [item.price, userId]);
+      await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [totalCost, userId]);
       await client.query(
-        `INSERT INTO user_inventory (user_id, item_id, quantity) VALUES ($1, $2, 1)
-         ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + 1`,
-        [userId, item.id]
+        `INSERT INTO user_inventory (user_id, item_id, quantity) VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = user_inventory.quantity + $3`,
+        [userId, item.id, quantity]
       );
       await client.query("COMMIT");
 
       const embed = new EmbedBuilder()
         .setTitle(`${item.emoji} Item Purchased!`)
-        .setDescription(`You bought **${item.name}** for **${item.price.toLocaleString()}** Cybercoins!\n\nNew balance: **${(user.rows[0].balance - item.price).toLocaleString()}** Cybercoins`)
+        .setDescription(`You bought **${quantity}x ${item.name}** for **${totalCost.toLocaleString()}** Cybercoins!\n\nNew balance: **${(user.rows[0].balance - totalCost).toLocaleString()}** Cybercoins`)
         .setColor(0x2ecc71);
 
       return message.channel.send({ embeds: [embed] });
@@ -253,7 +325,7 @@ async function showShop(message, user) {
     embed.addFields({ name: `${cat.emoji} ${cat.name}`, value: itemStr, inline: false });
   }
 
-  embed.setFooter({ text: "p!shop buy <item> | p!shop use <item> [id] | p!shop hold <item> <id> | p!shop inv" });
+  embed.setFooter({ text: "p!shop buy <item> [qty] | p!shop use <item> [id] | p!shop hold <item> <id> | p!shop inv" });
 
   message.channel.send({ embeds: [embed] });
 }

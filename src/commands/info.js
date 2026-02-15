@@ -3,6 +3,19 @@ const { pool } = require("../database");
 const { getPokemonById, getPokemonImage } = require("../data/pokemonLoader");
 const { capitalize, totalIV, getTypeEmoji, getStatBar, xpForLevel } = require("../utils/helpers");
 const { canMegaEvolve, canGmax, getMegaData, getGmaxData } = require("../data/mega");
+const { getAvailableMoves } = require("../data/learnsets");
+
+function getRegion(pokemonId) {
+  if (pokemonId <= 151) return { name: "Kanto", gen: 1 };
+  if (pokemonId <= 251) return { name: "Johto", gen: 2 };
+  if (pokemonId <= 386) return { name: "Hoenn", gen: 3 };
+  if (pokemonId <= 493) return { name: "Sinnoh", gen: 4 };
+  if (pokemonId <= 649) return { name: "Unova", gen: 5 };
+  if (pokemonId <= 721) return { name: "Kalos", gen: 6 };
+  if (pokemonId <= 809) return { name: "Alola", gen: 7 };
+  if (pokemonId <= 905) return { name: "Galar", gen: 8 };
+  return { name: "Paldea", gen: 9 };
+}
 
 async function execute(message, args) {
   const userId = message.author.id;
@@ -42,7 +55,8 @@ async function execute(message, args) {
   const favText = p.favorite ? " ❤️" : "";
   const pokeName = p.nickname || capitalize(data.name);
 
-  const typeStr = data.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" / ");
+  const typeStr = data.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" | ");
+  const region = getRegion(p.pokemon_id);
 
   const xpPct = Math.round((p.xp / xpNeeded) * 20);
   const xpBar = "█".repeat(xpPct) + "░".repeat(20 - xpPct);
@@ -63,29 +77,45 @@ async function execute(message, args) {
     compatStr += `💍 **Gigantamax:** ${gmaxData.name}\n`;
   }
 
+  const equippedMoves = [p.move1, p.move2, p.move3, p.move4].filter(Boolean);
+  let moveStr = "No moves equipped";
+  if (equippedMoves.length > 0) {
+    const available = getAvailableMoves(data.types, p.level);
+    moveStr = equippedMoves.map((name, i) => {
+      const m = available.find(a => a.name === name);
+      const emoji = m ? getTypeEmoji(m.type) : "❓";
+      return `${emoji} ${name}${m ? ` (${m.power}/${m.accuracy}%)` : ""}`;
+    }).join("\n");
+  }
+
   const embed = new EmbedBuilder()
     .setTitle(`${shinyText} ${pokeName} ${favText}`)
     .setDescription(
-      `**${data.genus || "Pokemon"}** — ${typeStr}\n` +
+      `**${data.genus || "Pokemon"}**\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+      `**Type:** ${typeStr}\n` +
+      `**Region:** 🌍 ${region.name} (Gen ${region.gen})\n` +
+      `**Pokedex #:** ${p.pokemon_id}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
     )
     .addFields(
       { name: "📊 Level", value: `**${p.level}** / 100`, inline: true },
       { name: "⭐ Total IV", value: `**${iv}%**`, inline: true },
       { name: "🎭 Nature", value: `${p.nature}`, inline: true },
-      { name: "📈 Experience", value: `${xpBar} ${p.xp}/${xpNeeded}`, inline: false },
+      { name: "📈 Experience", value: `\`[${xpBar}]\` ${p.xp}/${xpNeeded}`, inline: false },
       { name: "🆔 ID", value: `${p.id}`, inline: true },
       { name: "🎒 Held Item", value: heldItemStr, inline: true },
       { name: "✨ Shiny", value: p.shiny ? "Yes" : "No", inline: true },
+      { name: "⚔️ Equipped Moves", value: moveStr, inline: false },
       { name: "\u200B", value: `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**Individual Values (IVs)**`, inline: false },
-      { name: "HP", value: `\`${getStatBar(p.iv_hp)}\` **${p.iv_hp}**/31`, inline: false },
-      { name: "Attack", value: `\`${getStatBar(p.iv_atk)}\` **${p.iv_atk}**/31`, inline: false },
-      { name: "Defense", value: `\`${getStatBar(p.iv_def)}\` **${p.iv_def}**/31`, inline: false },
-      { name: "Sp. Atk", value: `\`${getStatBar(p.iv_spatk)}\` **${p.iv_spatk}**/31`, inline: false },
-      { name: "Sp. Def", value: `\`${getStatBar(p.iv_spdef)}\` **${p.iv_spdef}**/31`, inline: false },
-      { name: "Speed", value: `\`${getStatBar(p.iv_spd)}\` **${p.iv_spd}**/31`, inline: false }
+      { name: "HP", value: `\`${getStatBar(p.iv_hp)}\` **${p.iv_hp}**/31`, inline: true },
+      { name: "Attack", value: `\`${getStatBar(p.iv_atk)}\` **${p.iv_atk}**/31`, inline: true },
+      { name: "Defense", value: `\`${getStatBar(p.iv_def)}\` **${p.iv_def}**/31`, inline: true },
+      { name: "Sp. Atk", value: `\`${getStatBar(p.iv_spatk)}\` **${p.iv_spatk}**/31`, inline: true },
+      { name: "Sp. Def", value: `\`${getStatBar(p.iv_spdef)}\` **${p.iv_spdef}**/31`, inline: true },
+      { name: "Speed", value: `\`${getStatBar(p.iv_spd)}\` **${p.iv_spd}**/31`, inline: true }
     )
-    .setThumbnail(getPokemonImage(p.pokemon_id, p.shiny))
+    .setImage(getPokemonImage(p.pokemon_id, p.shiny))
     .setColor(p.shiny ? 0xffd700 : 0x2f3136);
 
   if (compatStr) {
@@ -97,7 +127,7 @@ async function execute(message, args) {
   }
 
   const bsTotal = data.baseStats.hp + data.baseStats.atk + data.baseStats.def + data.baseStats.spatk + data.baseStats.spdef + data.baseStats.spd;
-  embed.setFooter({ text: `#${p.pokemon_id} | BST: ${bsTotal} | HP ${data.baseStats.hp} / ATK ${data.baseStats.atk} / DEF ${data.baseStats.def} / SpA ${data.baseStats.spatk} / SpD ${data.baseStats.spdef} / SPD ${data.baseStats.spd}` });
+  embed.setFooter({ text: `#${p.pokemon_id} | ${region.name} | BST: ${bsTotal} | HP ${data.baseStats.hp} / ATK ${data.baseStats.atk} / DEF ${data.baseStats.def} / SpA ${data.baseStats.spatk} / SpD ${data.baseStats.spdef} / SPD ${data.baseStats.spd}` });
 
   message.channel.send({ embeds: [embed] });
 }

@@ -155,4 +155,30 @@ function getMovesForPokemon(types, level) {
   return selected;
 }
 
-module.exports = { MOVES, getMovesForPokemon };
+function getEquippedMoves(moveNames, types, level) {
+  const { getAvailableMoves } = require("./learnsets");
+  const available = getAvailableMoves(types, level);
+  const equipped = [];
+
+  for (const name of moveNames) {
+    if (!name) continue;
+    const found = available.find(m => m.name === name);
+    if (found) {
+      equipped.push({ ...found });
+    }
+  }
+
+  if (equipped.length === 0) {
+    return getMovesForPokemon(types, level);
+  }
+
+  while (equipped.length < 4 && available.length > equipped.length) {
+    const next = available.find(m => !equipped.some(e => e.name === m.name));
+    if (next) equipped.push({ ...next });
+    else break;
+  }
+
+  return equipped.slice(0, 4);
+}
+
+module.exports = { MOVES, getMovesForPokemon, getEquippedMoves };
