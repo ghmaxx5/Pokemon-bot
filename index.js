@@ -1,8 +1,19 @@
-const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  Collection,
+  EmbedBuilder,
+} = require("discord.js");
 const fs = require("fs");
 const path = require("path");
+const http = require("http");
 const { initDatabase, pool } = require("./src/database");
-const { loadPokemonData, getPokemonById, getRandomPokemon, getPokemonImage } = require("./src/data/pokemonLoader");
+const {
+  loadPokemonData,
+  getPokemonById,
+  getRandomPokemon,
+  getPokemonImage,
+} = require("./src/data/pokemonLoader");
 const { xpForLevel, capitalize, getTypeEmoji } = require("./src/utils/helpers");
 const { getNewMovesAtLevel } = require("./src/data/learnsets");
 
@@ -11,9 +22,13 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
-  ]
+    GatewayIntentBits.GuildMembers,
+  ],
 });
+http.createServer((req, res) => {
+  res.write("Cybermon is alive!");
+  res.end();
+}).listen(8080);
 
 const commands = new Collection();
 const aliases = new Collection();
@@ -27,7 +42,9 @@ const spawnCooldowns = new Map();
 const xpCooldowns = new Map();
 const XP_COOLDOWN = 10000;
 
-const commandFiles = fs.readdirSync(path.join(__dirname, "src/commands")).filter(f => f.endsWith(".js"));
+const commandFiles = fs
+  .readdirSync(path.join(__dirname, "src/commands"))
+  .filter((f) => f.endsWith(".js"));
 for (const file of commandFiles) {
   const cmd = require(`./src/commands/${file}`);
   commands.set(cmd.name, cmd);
@@ -42,7 +59,10 @@ console.log(`Loaded ${commands.size} commands`);
 
 async function getPrefix(guildId) {
   try {
-    const result = await pool.query("SELECT prefix FROM server_config WHERE guild_id = $1", [guildId]);
+    const result = await pool.query(
+      "SELECT prefix FROM server_config WHERE guild_id = $1",
+      [guildId],
+    );
     return result.rows.length > 0 ? result.rows[0].prefix : DEFAULT_PREFIX;
   } catch {
     return DEFAULT_PREFIX;
@@ -51,7 +71,10 @@ async function getPrefix(guildId) {
 
 async function getSpawnChannel(guildId) {
   try {
-    const result = await pool.query("SELECT spawn_channel_id FROM server_config WHERE guild_id = $1", [guildId]);
+    const result = await pool.query(
+      "SELECT spawn_channel_id FROM server_config WHERE guild_id = $1",
+      [guildId],
+    );
     return result.rows.length > 0 ? result.rows[0].spawn_channel_id : null;
   } catch {
     return null;
@@ -66,7 +89,7 @@ client.once("ready", async () => {
 
   client.user.setPresence({
     activities: [{ name: "p!help | Catch Pokemon!", type: 3 }],
-    status: "online"
+    status: "online",
   });
 });
 
@@ -84,13 +107,16 @@ client.on("messageCreate", async (message) => {
     const args = content.split(/\s+/);
     const commandName = args.shift().toLowerCase();
 
-    const command = commands.get(commandName) || commands.get(aliases.get(commandName));
+    const command =
+      commands.get(commandName) || commands.get(aliases.get(commandName));
     if (!command) return;
 
     await command.execute(message, args, spawns);
   } catch (error) {
     console.error(`Error executing command:`, error);
-    message.reply("An error occurred while executing that command.").catch(() => {});
+    message
+      .reply("An error occurred while executing that command.")
+      .catch(() => {});
   }
 });
 
@@ -100,14 +126,17 @@ async function handleXP(message) {
     if (Date.now() - lastXP < XP_COOLDOWN) return;
     xpCooldowns.set(message.author.id, Date.now());
 
-    const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [message.author.id]);
+    const user = await pool.query(
+      "SELECT * FROM users WHERE user_id = $1 AND started = TRUE",
+      [message.author.id],
+    );
     if (user.rows.length === 0 || !user.rows[0].selected_pokemon_id) return;
 
     let xpGain = Math.floor(Math.random() * 10) + 5;
 
     const xpBoost = await pool.query(
       "SELECT id FROM user_boosts WHERE user_id = $1 AND boost_type = 'xp_boost' AND expires_at > NOW() LIMIT 1",
-      [message.author.id]
+      [message.author.id],
     );
     if (xpBoost.rows.length > 0) {
       xpGain *= 2;
@@ -115,7 +144,7 @@ async function handleXP(message) {
 
     const result = await pool.query(
       "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
-      [xpGain, user.rows[0].selected_pokemon_id]
+      [xpGain, user.rows[0].selected_pokemon_id],
     );
 
     if (result.rows.length === 0) return;
@@ -124,23 +153,35 @@ async function handleXP(message) {
 
     if (p.xp >= xpNeeded && p.level < 100) {
       const newLevel = p.level + 1;
-      await pool.query("UPDATE pokemon SET level = $1, xp = 0 WHERE id = $2", [newLevel, p.id]);
+      await pool.query("UPDATE pokemon SET level = $1, xp = 0 WHERE id = $2", [
+        newLevel,
+        p.id,
+      ]);
 
       let currentPokemonId = p.pokemon_id;
       const data = getPokemonById(currentPokemonId);
-      const name = p.nickname || (data ? capitalize(data.name) : `#${currentPokemonId}`);
+      const name =
+        p.nickname || (data ? capitalize(data.name) : `#${currentPokemonId}`);
 
       const newMoves = data ? getNewMovesAtLevel(data.types, newLevel) : [];
       let moveText = "";
       if (newMoves.length > 0) {
-        moveText = "\n\n**New Moves Learned:**\n" +
-          newMoves.map(m => `${getTypeEmoji(m.type)} **${m.name}** (${capitalize(m.type)} | Pow: ${m.power} | Acc: ${m.accuracy}%)`).join("\n") +
+        moveText =
+          "\n\n**New Moves Learned:**\n" +
+          newMoves
+            .map(
+              (m) =>
+                `${getTypeEmoji(m.type)} **${m.name}** (${capitalize(m.type)} | Pow: ${m.power} | Acc: ${m.accuracy}%)`,
+            )
+            .join("\n") +
           "\n\nUse `p!moves` to view and equip moves!";
       }
 
       const embed = new EmbedBuilder()
         .setTitle("Level Up!")
-        .setDescription(`Your ${p.shiny ? "✨ " : ""}**${name}** grew to **Level ${newLevel}**!${moveText}`)
+        .setDescription(
+          `Your ${p.shiny ? "✨ " : ""}**${name}** grew to **Level ${newLevel}**!${moveText}`,
+        )
         .setColor(0x00ff00)
         .setThumbnail(getPokemonImage(currentPokemonId, p.shiny));
 
@@ -152,13 +193,19 @@ async function handleXP(message) {
           const { getPokemonByName } = require("./src/data/pokemonLoader");
           const evoTarget = getPokemonByName(evo.to);
           if (evoTarget) {
-            await pool.query("UPDATE pokemon SET pokemon_id = $1, nickname = NULL WHERE id = $2", [evoTarget.id, p.id]);
-            await pool.query("INSERT INTO pokedex (user_id, pokemon_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", [message.author.id, evoTarget.id]);
+            await pool.query(
+              "UPDATE pokemon SET pokemon_id = $1, nickname = NULL WHERE id = $2",
+              [evoTarget.id, p.id],
+            );
+            await pool.query(
+              "INSERT INTO pokedex (user_id, pokemon_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+              [message.author.id, evoTarget.id],
+            );
 
             const evoEmbed = new EmbedBuilder()
               .setTitle("Congratulations! Your Pokémon evolved!")
               .setDescription(
-                `Your ${p.shiny ? "✨ " : ""}**${name}** evolved into **${capitalize(evoTarget.name)}**!`
+                `Your ${p.shiny ? "✨ " : ""}**${name}** evolved into **${capitalize(evoTarget.name)}**!`,
               )
               .setColor(0x9b59b6)
               .setImage(getPokemonImage(evoTarget.id, p.shiny));
@@ -199,7 +246,9 @@ async function handleSpawning(message) {
 
     const embed = new EmbedBuilder()
       .setTitle("A wild Pokemon has appeared!")
-      .setDescription("Guess the Pokemon and type `p!catch <name>` to catch it!")
+      .setDescription(
+        "Guess the Pokemon and type `p!catch <name>` to catch it!",
+      )
       .setImage(image)
       .setColor(0xff6600)
       .setFooter({ text: "Use p!hint for a hint!" });
@@ -207,10 +256,17 @@ async function handleSpawning(message) {
     message.channel.send({ embeds: [embed] }).catch(() => {});
 
     setTimeout(() => {
-      if (spawns.has(channelId) && spawns.get(channelId).pokemonId === pokemon.id) {
+      if (
+        spawns.has(channelId) &&
+        spawns.get(channelId).pokemonId === pokemon.id
+      ) {
         spawns.delete(channelId);
         const data = getPokemonById(pokemon.id);
-        message.channel.send(`The wild **${data ? capitalize(data.name) : "Pokemon"}** fled!`).catch(() => {});
+        message.channel
+          .send(
+            `The wild **${data ? capitalize(data.name) : "Pokemon"}** fled!`,
+          )
+          .catch(() => {});
       }
     }, 120000);
   }
