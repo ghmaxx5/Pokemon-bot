@@ -71,6 +71,8 @@ function getCurrentMoves(poke) {
 }
 
 async function buildBattleEmbed(battle, actionLog) {
+  // Sanitize — Discord rejects empty strings in description
+  if (!actionLog || actionLog.trim() === "") actionLog = null;
   const p1 = battle.p1Active;
   const p2 = battle.p2Active;
   const p1Name = getBattleName(p1);
@@ -109,7 +111,7 @@ async function buildBattleEmbed(battle, actionLog) {
     .setTitle("⚔️ Pokémon Battle!")
     .setDescription(
       (statusLines ? `${statusLines}\n` : "") +
-      (actionLog ? actionLog : "")
+      (actionLog ? actionLog : "⚔️ Battle in progress!")
     )
     .setColor(0xe74c3c)
     .setImage(imageUrl)
