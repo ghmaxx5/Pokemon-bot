@@ -1,4 +1,4 @@
-const { createCanvas, loadImage } = require("canvas");
+const { createCanvas, loadImage } = require("@napi-rs/canvas");
 
 /**
  * Generates a Poketwo-style battle image with both Pokemon and HP bars.
