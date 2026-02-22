@@ -102,6 +102,8 @@ const MOVE_DESCRIPTIONS = {
   "Play Rough": "The user plays rough with the target and attacks it. This may also lower the target's Attack stat.",
   "Draining Kiss": "The user steals the target's HP with a kiss. The user's HP is restored by over half of the damage taken by the target.",
   "Aerial Ace": "The user confounds the target with speed, then slashes. This attack never misses regardless of accuracy or evasion changes.",
+  "Dragon Ascent": "The user soars and then strikes its target by dropping out of the sky at high speed. This also lowers the user's Defense and Sp. Def stats.",
+  "Meteor Mash": "The target is hit with a hard punch fired like a meteor. This may also raise the user's Attack stat.",
   "Fairy Wind": "The user stirs up a fairy wind and strikes the target with it."
 };
 

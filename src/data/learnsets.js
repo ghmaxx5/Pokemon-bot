@@ -3,8 +3,102 @@ const { MOVES } = require("./moves");
 // ── Pokémon-specific extra moves (by pokemon_id) ──
 // These are added on top of the type-generated learnset
 const POKEMON_SPECIFIC_MOVES = {
-  658: [ // Greninja
+  // ── Greninja ──────────────────────────────────────────────────
+  658: [
     { name: "Aerial Ace", power: 60, accuracy: 100, type: "flying", learnLevel: 80, neverMiss: true }
+  ],
+
+  // ══════════════════════════════════════════════════════════════
+  //  DRAGON ASCENT  –  Flying / 120 power / 100 acc
+  //  Rayquaza's signature. Learned by legendary/godly dragons.
+  // ══════════════════════════════════════════════════════════════
+
+  384: [ // Rayquaza — learns at 90 (signature move)
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 90 }
+  ],
+  149: [ // Dragonite — dragon/flying, earns it at 85
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+  ],
+  373: [ // Salamence — dragon/flying, 85
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+  ],
+  635: [ // Hydreigon — dark/dragon, 88
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+  ],
+  445: [ // Garchomp — dragon/ground, 88
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+  ],
+  612: [ // Haxorus — pure dragon, 85
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+  ],
+  330: [ // Flygon — ground/dragon, 82
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 82 }
+  ],
+  643: [ // Reshiram — dragon/fire legendary, 90
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 90 }
+  ],
+  644: [ // Zekrom — dragon/electric legendary, 90
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 90 }
+  ],
+  483: [ // Dialga — steel/dragon legendary, 88
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+  ],
+  484: [ // Palkia — water/dragon legendary, 88
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+  ],
+  706: [ // Goodra — pure dragon, 82
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 82 }
+  ],
+  784: [ // Kommo-o — dragon/fighting, 85
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+  ],
+  884: [ // Duraludon — steel/dragon, 85
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+  ],
+
+  // ══════════════════════════════════════════════════════════════
+  //  METEOR MASH  –  Steel / 90 power / 90 acc
+  //  Lucario's & elite steel-types' signature power move.
+  // ══════════════════════════════════════════════════════════════
+
+  448: [ // Lucario — fighting/steel, 72
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 72 }
+  ],
+  376: [ // Metagross — steel/psychic, 78 (signature Pokémon of this move)
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 78 }
+  ],
+  375: [ // Metang — evolves into Metagross, 65
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 65 }
+  ],
+  374: [ // Beldum — baby form, 55
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 55 }
+  ],
+  212: [ // Scizor — bug/steel, 70
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 70 }
+  ],
+  530: [ // Excadrill — ground/steel, 70
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 70 }
+  ],
+  681: [ // Aegislash-shield — steel/ghost, 75
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 75 }
+  ],
+  625: [ // Bisharp — dark/steel, 72
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 72 }
+  ],
+  983: [ // Kingambit — dark/steel (Bisharp evolution), 78
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 78 }
+  ],
+  638: [ // Cobalion — steel/fighting legendary, 75
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 75 }
+  ],
+  379: [ // Registeel — pure steel legendary, 80
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 80 }
+  ],
+  791: [ // Solgaleo — psychic/steel legendary, 82
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 82 }
+  ],
+  809: [ // Melmetal — steel, 80
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 80 }
   ]
 };
 
@@ -93,11 +187,17 @@ function getCoverageTypes(types) {
 function getAvailableMoves(types, level, pokemonId = null) {
   const learnset = generateLearnset(types);
 
-  // Merge in Pokémon-specific moves
+  // Merge in Pokémon-specific moves — override learnLevel if already in learnset
   if (pokemonId && POKEMON_SPECIFIC_MOVES[pokemonId]) {
-    for (const move of POKEMON_SPECIFIC_MOVES[pokemonId]) {
-      if (!learnset.some(m => m.name === move.name)) {
-        learnset.push(move);
+    for (const override of POKEMON_SPECIFIC_MOVES[pokemonId]) {
+      const existing = learnset.find(m => m.name === override.name);
+      if (existing) {
+        // Update the learnLevel to the specific override value
+        existing.learnLevel = override.learnLevel;
+        // Copy any extra flags (neverMiss etc.)
+        Object.assign(existing, override);
+      } else {
+        learnset.push({ ...override });
       }
     }
     learnset.sort((a, b) => a.learnLevel - b.learnLevel);
@@ -110,9 +210,13 @@ function getNewMovesAtLevel(types, level, pokemonId = null) {
   const learnset = generateLearnset(types);
 
   if (pokemonId && POKEMON_SPECIFIC_MOVES[pokemonId]) {
-    for (const move of POKEMON_SPECIFIC_MOVES[pokemonId]) {
-      if (!learnset.some(m => m.name === move.name)) {
-        learnset.push(move);
+    for (const override of POKEMON_SPECIFIC_MOVES[pokemonId]) {
+      const existing = learnset.find(m => m.name === override.name);
+      if (existing) {
+        existing.learnLevel = override.learnLevel;
+        Object.assign(existing, override);
+      } else {
+        learnset.push({ ...override });
       }
     }
   }

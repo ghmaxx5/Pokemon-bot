@@ -76,7 +76,8 @@ const MOVES = {
     { name: "Air Slash", power: 75, accuracy: 95 },
     { name: "Brave Bird", power: 120, accuracy: 100 },
     { name: "Hurricane", power: 110, accuracy: 70 },
-    { name: "Aerial Ace", power: 60, accuracy: 100, neverMiss: true }
+    { name: "Aerial Ace", power: 60, accuracy: 100, neverMiss: true },
+    { name: "Dragon Ascent", power: 120, accuracy: 100, neverMiss: false }
   ],
   psychic: [
     { name: "Confusion", power: 50, accuracy: 100 },
