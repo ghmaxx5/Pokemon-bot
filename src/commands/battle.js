@@ -169,15 +169,66 @@ async function execute(message, args) {
     return message.reply(
       "**⚔️ Battle Commands:**\n" +
       "`p!battle @user` - Challenge a trainer (3v3)\n" +
-      "`p!battle ai` - Fight an AI trainer (3v3)\n"
+      "`p!battle ai` - Fight an AI trainer (3v3)\n" +
+      "`p!battle quit` - Forfeit the current battle\n"
     );
+  }
+
+  // ── Quit / Forfeit ──
+  if (args[0].toLowerCase() === "quit" || args[0].toLowerCase() === "forfeit" || args[0].toLowerCase() === "ff") {
+    const battle = activeBattles.get(channelId);
+
+    if (!battle) {
+      return message.reply("There's no active battle in this channel!");
+    }
+
+    // Only participants can quit
+    const isChallenger = userId === battle.challenger;
+    const isOpponent = userId === battle.opponent;
+    if (!isChallenger && !isOpponent) {
+      return message.reply("You're not part of the battle in this channel!");
+    }
+
+    // Can't quit during team selection phase — battle must be active
+    if (battle.status !== "active") {
+      activeBattles.delete(channelId);
+      return message.reply("Battle cancelled.");
+    }
+
+    const quitter = isChallenger ? battle.challenger : battle.opponent;
+    const winner = isChallenger ? battle.opponent : battle.challenger;
+    const isAIWin = winner === "AI_TRAINER";
+
+    // Give winner reward
+    const reward = 200;
+    const xpGain = 30;
+    if (!isAIWin) {
+      await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [reward, winner]);
+      const winnerTeam = isChallenger ? battle.p2Team : battle.p1Team;
+      for (const p of winnerTeam) {
+        if (p.id > 0) await pool.query("UPDATE pokemon SET xp = xp + $1 WHERE id = $2", [xpGain, p.id]);
+      }
+    }
+
+    activeBattles.delete(channelId);
+
+    const forfeitEmbed = new EmbedBuilder()
+      .setTitle("🏳️ Battle Forfeited!")
+      .setDescription(
+        `<@${quitter}> has forfeited the battle!\n\n` +
+        (isAIWin
+          ? `🤖 The AI Trainer wins by default!`
+          : `🏆 <@${winner}> wins by default and earns **${reward}** Cybercoins + **${xpGain}** XP per Pokémon!`)
+      )
+      .setColor(0x95a5a6)
+      .setFooter({ text: "Better luck next time!" });
+
+    return message.channel.send({ embeds: [forfeitEmbed] });
   }
 
   if (args[0].toLowerCase() === "ai" || args[0].toLowerCase() === "npc" || args[0].toLowerCase() === "cpu") {
     return startAIBattle(message, userId, channelId);
   }
-
-  const mentioned = message.mentions.users.first();
   if (!mentioned) return message.reply("Please mention a user to battle or use `p!battle ai`!");
   if (mentioned.id === userId) return message.reply("You can't battle yourself! Try `p!battle ai` instead.");
   if (mentioned.bot) return message.reply("You can't battle a bot! Try `p!battle ai` instead.");
