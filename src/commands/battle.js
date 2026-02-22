@@ -109,8 +109,7 @@ async function buildBattleEmbed(battle, actionLog) {
     .setTitle("⚔️ Pokémon Battle!")
     .setDescription(
       (statusLines ? `${statusLines}\n` : "") +
-      (actionLog ? `📋 ${actionLog}\n\n` : "\n") +
-      `<@${battle.turn}>'s turn! Choose your move:`
+      (actionLog ? actionLog : "")
     )
     .setColor(0xe74c3c)
     .setImage(imageUrl)
@@ -659,13 +658,26 @@ async function startSimultaneousTurnPvP(message, battle, channelId) {
   const p1 = battle.p1Active;
   const p2 = battle.p2Active;
 
-  // Build move buttons for both players
-  function buildRows(poke, prefix) {
-    const rows = [buildMoveButtons(poke, prefix)];
+  // ── Build initial move rows for a pokemon ──
+  function buildInitialRows(poke, prefix) {
+    const rows = [];
+    const moveRow = buildMoveButtons(poke, `${prefix}_move`);
+
+    // Add "Do Nothing / Pass" button to move row
+    moveRow.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${prefix}_pass`)
+        .setLabel("Pass")
+        .setEmoji("⏭️")
+        .setStyle(ButtonStyle.Secondary)
+    );
+    rows.push(moveRow);
+
     const canMega = poke.canMega && !poke.megaEvolved && !poke.gmaxed;
     const canGmax = poke.canGmax && !poke.gmaxed && !poke.megaEvolved;
     const team = poke === p1 ? battle.p1Team : battle.p2Team;
     const canSwitch = battle.is3v3 && team.filter(p => p.currentHp > 0 && p !== poke).length > 0;
+
     if (canMega || canGmax || canSwitch) {
       const row2 = new ActionRowBuilder();
       if (canMega) row2.addComponents(new ButtonBuilder().setCustomId(`${prefix}_mega`).setLabel(poke.megaData?.isPrimal ? "Primal Reversion" : "Mega Evolve").setEmoji("💎").setStyle(ButtonStyle.Danger));
@@ -676,46 +688,108 @@ async function startSimultaneousTurnPvP(message, battle, channelId) {
     return rows;
   }
 
-  // Send one shared battle image with "both choose" prompt
-  const { embed: turnEmbed, attachment: turnAttachment } = await buildBattleEmbed(battle, null);
-  turnEmbed.setTitle("⚔️ Both trainers — choose your move!");
-  turnEmbed.setDescription(`<@${battle.challenger}> and <@${battle.opponent}> — both pick your move below!\n\n⏱️ 60 seconds`);
-  const turnOpts = { content: `<@${battle.challenger}> <@${battle.opponent}>`, embeds: [turnEmbed], components: [] };
-  if (turnAttachment) turnOpts.files = [turnAttachment];
-  await message.channel.send(turnOpts);
-
-  // Send individual move selectors
-  const p1Embed = buildPlayerMoveEmbed(battle, battle.challenger, null);
-  const p2Embed = buildPlayerMoveEmbed(battle, battle.opponent, null);
-
-  const p1Rows = buildRows(p1, "p1mv");
-  const p2Rows = buildRows(p2, "p2mv");
-
-  const p1Msg = await message.channel.send({ content: `<@${battle.challenger}> — your move:`, embeds: [p1Embed], components: p1Rows });
-  const p2Msg = await message.channel.send({ content: `<@${battle.opponent}> — your move:`, embeds: [p2Embed], components: p2Rows });
-
-  // Collect both moves simultaneously
+  // ── Shared state ──
   let p1Choice = null;
   let p2Choice = null;
   let p1Transform = "";
   let p2Transform = "";
   let resolved = false;
 
+  // Send battle image (no action log — just the field)
+  const { embed: turnEmbed, attachment: turnAttachment } = await buildBattleEmbed(battle, null);
+  turnEmbed.setTitle("⚔️ Both trainers — choose your move!");
+  turnEmbed.setDescription(
+    `<@${battle.challenger}> and <@${battle.opponent}> — both pick your move below!\n` +
+    `Your choice is **hidden** from your opponent until both have locked in.\n\n⏱️ 60 seconds`
+  );
+  const turnOpts = { content: `<@${battle.challenger}> <@${battle.opponent}>`, embeds: [turnEmbed], components: [] };
+  if (turnAttachment) turnOpts.files = [turnAttachment];
+  await message.channel.send(turnOpts);
+
+  // Individual selector messages
+  const p1Embed = buildPlayerMoveEmbed(battle, battle.challenger, null);
+  const p2Embed = buildPlayerMoveEmbed(battle, battle.opponent, null);
+  const p1Rows = buildInitialRows(p1, "p1mv");
+  const p2Rows = buildInitialRows(p2, "p2mv");
+
+  const p1Msg = await message.channel.send({ content: `<@${battle.challenger}> — your move:`, embeds: [p1Embed], components: p1Rows });
+  const p2Msg = await message.channel.send({ content: `<@${battle.opponent}> — your move:`, embeds: [p2Embed], components: p2Rows });
+
+  // ── Try to resolve when both choices are in ──
   async function tryResolve() {
     if (resolved) return;
     if (!p1Choice || !p2Choice) return;
     resolved = true;
-
-    // Disable both messages
-    await p1Msg.edit({ embeds: [p1Embed], components: [] }).catch(() => {});
-    await p2Msg.edit({ embeds: [p2Embed], components: [] }).catch(() => {});
-
-    await resolveSimultaneousMoves(message, battle, channelId,
-      p1, p2, p1Choice, p2Choice, p1Transform, p2Transform);
+    // Disable both messages silently (no move names shown)
+    await p1Msg.edit({ embeds: [new EmbedBuilder().setDescription("✅ Both trainers have chosen! Resolving...").setColor(0x2ecc71)], components: [] }).catch(() => {});
+    await p2Msg.edit({ embeds: [new EmbedBuilder().setDescription("✅ Both trainers have chosen! Resolving...").setColor(0x2ecc71)], components: [] }).catch(() => {});
+    await resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Choice, p2Choice, p1Transform, p2Transform);
   }
 
+  // ── Show move buttons after a transform (mega/gmax) — MUST choose move before resolving ──
+  async function showMoveSelectionAfterTransform(msg, poke, prefix, isP1, transformText) {
+    const afterPrefix = `${prefix}_after`;
+    const moveRow = buildMoveButtons(poke, `${afterPrefix}_move`);
+    moveRow.addComponents(
+      new ButtonBuilder().setCustomId(`${afterPrefix}_pass`).setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary)
+    );
+    const rows = [moveRow];
+    await msg.edit({
+      embeds: [buildPlayerMoveEmbed(battle, isP1 ? battle.challenger : battle.opponent, `${transformText}\n\n**Now choose your move:**`)],
+      components: rows
+    }).catch(() => {});
+
+    // New collector — only responds to this player, only for afterPrefix buttons
+    const afterCollector = msg.createMessageComponentCollector({
+      filter: i => i.user.id === (isP1 ? battle.challenger : battle.opponent) && i.customId.startsWith(afterPrefix),
+      time: 60000,
+      max: 1
+    });
+
+    afterCollector.on("collect", async (mi) => {
+      let move;
+      if (mi.customId === `${afterPrefix}_pass`) {
+        move = { isPass: true, name: "Pass" };
+      } else {
+        const moveIdx = parseInt(mi.customId.replace(`${afterPrefix}_move_`, ""));
+        move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
+      }
+      if (isP1) p1Choice = move; else p2Choice = move;
+      // Show locked-in WITHOUT revealing the move name to channel
+      await mi.update({
+        embeds: [new EmbedBuilder().setDescription("✅ Move locked in! Waiting for opponent...").setColor(0x2ecc71)],
+        components: []
+      }).catch(() => {});
+      tryResolve();
+    });
+
+    afterCollector.on("end", c => {
+      if (c.size === 0 && !(isP1 ? p1Choice : p2Choice)) {
+        // Auto-pick first move on timeout
+        const move = getCurrentMoves(poke)[0];
+        if (isP1) p1Choice = move; else p2Choice = move;
+        tryResolve();
+      }
+    });
+  }
+
+  // ── Handle a button click from either player ──
   async function handleChoice(interaction, poke, prefix, isP1) {
     const id = interaction.customId;
+    const msg = isP1 ? p1Msg : p2Msg;
+    const playerId = isP1 ? battle.challenger : battle.opponent;
+
+    // Pass / Do Nothing
+    if (id === `${prefix}_pass`) {
+      if (isP1) p1Choice = { isPass: true, name: "Pass" };
+      else p2Choice = { isPass: true, name: "Pass" };
+      await interaction.update({
+        embeds: [new EmbedBuilder().setDescription("✅ Passing this turn! Waiting for opponent...").setColor(0x95a5a6)],
+        components: []
+      });
+      tryResolve();
+      return;
+    }
 
     // Switch
     if (id === `${prefix}_switch`) {
@@ -723,12 +797,19 @@ async function startSimultaneousTurnPvP(message, battle, channelId) {
       const alive = team.filter(p => p.currentHp > 0 && p !== poke);
       const switchRow = new ActionRowBuilder();
       alive.forEach((p, i) => switchRow.addComponents(
-        new ButtonBuilder().setCustomId(`${prefix}_sw_${i}`).setLabel(`${getBattleName(p)} (HP:${p.currentHp}/${p.maxHp})`.substring(0, 80)).setStyle(ButtonStyle.Primary)
+        new ButtonBuilder()
+          .setCustomId(`${prefix}_sw_${i}`)
+          .setLabel(`${getBattleName(p)} (HP:${p.currentHp}/${p.maxHp})`.substring(0, 80))
+          .setStyle(ButtonStyle.Primary)
       ));
-      await interaction.update({ embeds: [buildPlayerMoveEmbed(battle, isP1 ? battle.challenger : battle.opponent, "Choose who to switch in:")], components: [switchRow] });
+      // Show switch options to this player only — not revealing to channel
+      await interaction.update({
+        embeds: [buildPlayerMoveEmbed(battle, playerId, "Choose who to switch in:")],
+        components: [switchRow]
+      });
 
-      const swCollector = (isP1 ? p1Msg : p2Msg).createMessageComponentCollector({
-        filter: i => i.user.id === (isP1 ? battle.challenger : battle.opponent),
+      const swCollector = msg.createMessageComponentCollector({
+        filter: i => i.user.id === playerId && i.customId.startsWith(`${prefix}_sw_`),
         time: 30000, max: 1
       });
       swCollector.on("collect", async (si) => {
@@ -740,7 +821,10 @@ async function startSimultaneousTurnPvP(message, battle, channelId) {
         const tf = `🔄 **${getBattleName(poke)}** → **${getBattleName(switchTo)}**!`;
         if (isP1) { p1Transform = tf; p1Choice = { isSwitchOnly: true }; }
         else { p2Transform = tf; p2Choice = { isSwitchOnly: true }; }
-        await si.update({ embeds: [new EmbedBuilder().setDescription(`✅ Switching to **${getBattleName(switchTo)}**...`).setColor(0x2ecc71)], components: [] });
+        await si.update({
+          embeds: [new EmbedBuilder().setDescription("✅ Switch locked in! Waiting for opponent...").setColor(0x2ecc71)],
+          components: []
+        });
         tryResolve();
       });
       swCollector.on("end", c => {
@@ -753,87 +837,58 @@ async function startSimultaneousTurnPvP(message, battle, channelId) {
       return;
     }
 
-    // Mega evolve
+    // Mega Evolve — apply transform, THEN force move selection
     if (id === `${prefix}_mega`) {
       const megaData = poke.megaData;
       poke.megaEvolved = true; poke.canMega = false;
       poke.activeTypes = megaData.types || poke.activeTypes;
       poke.statBoosts = megaData.statBoost;
-      const newMaxHp = poke.maxHp + Math.floor(megaData.statBoost.hp * poke.level / 100);
+      const newMaxHp = poke.maxHp + Math.floor((megaData.statBoost?.hp || 0) * poke.level / 100);
       if (newMaxHp > poke.maxHp) { poke.currentHp += (newMaxHp - poke.maxHp); poke.maxHp = newMaxHp; }
       const tname = megaData.isPrimal ? "Primal Reversion" : "Mega Evolution";
       const tf = `💎 **${getBattleName(poke)}** triggered ${tname}!`;
       if (isP1) p1Transform = tf; else p2Transform = tf;
-      // Now show move buttons for the mega'd poke
-      const newRows = [buildMoveButtons(poke, `${prefix}_aftermega`)];
-      await interaction.update({ embeds: [buildPlayerMoveEmbed(battle, isP1 ? battle.challenger : battle.opponent, `${tf}\nNow choose your move:`)], components: newRows });
-      const megaMoveCollector = (isP1 ? p1Msg : p2Msg).createMessageComponentCollector({
-        filter: i => i.user.id === (isP1 ? battle.challenger : battle.opponent),
-        time: 60000, max: 1
-      });
-      megaMoveCollector.on("collect", async (mi) => {
-        const moveIdx = parseInt(mi.customId.replace(`${prefix}_aftermega_`, ""));
-        const move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
-        if (isP1) p1Choice = move; else p2Choice = move;
-        await mi.update({ embeds: [new EmbedBuilder().setDescription(`✅ Move locked in!`).setColor(0x2ecc71)], components: [] });
-        tryResolve();
-      });
-      megaMoveCollector.on("end", c => {
-        if (c.size === 0) {
-          const move = getCurrentMoves(poke)[0];
-          if (isP1) p1Choice = move; else p2Choice = move;
-          tryResolve();
-        }
-      });
+      // Acknowledge interaction first, then edit to show move selection
+      await interaction.deferUpdate().catch(() => {});
+      await showMoveSelectionAfterTransform(msg, poke, prefix, isP1, tf);
       return;
     }
 
-    // Gmax
+    // Gigantamax — apply transform, THEN force move selection
     if (id === `${prefix}_gmax`) {
       const gmaxData = poke.gmaxData;
       poke.gmaxed = true; poke.canGmax = false; poke.gmaxTurns = 3;
       poke.currentHp = Math.floor(poke.currentHp * 1.5);
       poke.maxHp = Math.floor(poke.maxHp * 1.5);
-      const tf = `💍 **${getBattleName(poke)}** Gigantamaxed into **${gmaxData.name}**!`;
+      const tf = `💍 **${getBattleName(poke)}** Gigantamaxed into **${gmaxData.name}**! G-Max moves active for 3 turns!`;
       if (isP1) p1Transform = tf; else p2Transform = tf;
-      const newRows = [buildMoveButtons(poke, `${prefix}_aftergmax`)];
-      await interaction.update({ embeds: [buildPlayerMoveEmbed(battle, isP1 ? battle.challenger : battle.opponent, `${tf}\nChoose your G-Max move:`)], components: newRows });
-      const gmaxCollector = (isP1 ? p1Msg : p2Msg).createMessageComponentCollector({
-        filter: i => i.user.id === (isP1 ? battle.challenger : battle.opponent),
-        time: 60000, max: 1
-      });
-      gmaxCollector.on("collect", async (mi) => {
-        const moveIdx = parseInt(mi.customId.replace(`${prefix}_aftergmax_`, ""));
-        const move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
-        if (isP1) p1Choice = move; else p2Choice = move;
-        await mi.update({ embeds: [new EmbedBuilder().setDescription(`✅ Move locked in!`).setColor(0x2ecc71)], components: [] });
-        tryResolve();
-      });
-      gmaxCollector.on("end", c => {
-        if (c.size === 0) {
-          const move = getCurrentMoves(poke)[0];
-          if (isP1) p1Choice = move; else p2Choice = move;
-          tryResolve();
-        }
-      });
+      await interaction.deferUpdate().catch(() => {});
+      await showMoveSelectionAfterTransform(msg, poke, prefix, isP1, tf);
       return;
     }
 
-    // Normal move
-    const moveIdx = parseInt(id.replace(`${prefix}_`, ""));
-    const move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
-    if (isP1) p1Choice = move; else p2Choice = move;
-    await interaction.update({ embeds: [new EmbedBuilder().setDescription(`✅ Move locked in! Waiting for opponent...`).setColor(0x2ecc71)], components: [] });
-    tryResolve();
+    // Normal move button
+    if (id.startsWith(`${prefix}_move_`)) {
+      const moveIdx = parseInt(id.replace(`${prefix}_move_`, ""));
+      const move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
+      if (isP1) p1Choice = move; else p2Choice = move;
+      // IMPORTANT: Don't reveal move name in message — just show locked in
+      await interaction.update({
+        embeds: [new EmbedBuilder().setDescription("✅ Move locked in! Waiting for opponent...").setColor(0x2ecc71)],
+        components: []
+      });
+      tryResolve();
+      return;
+    }
   }
 
-  // Collectors for both players
+  // ── Collectors — each only responds to correct player ──
   const p1Collector = p1Msg.createMessageComponentCollector({
-    filter: i => i.user.id === battle.challenger,
+    filter: i => i.user.id === battle.challenger && !i.customId.startsWith("p1mv_after") && !i.customId.startsWith("p1mv_sw_"),
     time: 60000, max: 1
   });
   const p2Collector = p2Msg.createMessageComponentCollector({
-    filter: i => i.user.id === battle.opponent,
+    filter: i => i.user.id === battle.opponent && !i.customId.startsWith("p2mv_after") && !i.customId.startsWith("p2mv_sw_"),
     time: 60000, max: 1
   });
 
@@ -885,7 +940,11 @@ async function startSimultaneousTurnAI(message, battle, channelId) {
   await message.channel.send(turnOpts);
 
   const p1Embed = buildPlayerMoveEmbed(battle, battle.challenger, "🤖 AI has chosen its move!");
-  const moveRows = [buildMoveButtons(p1, "p1mv")];
+  const moveRow = buildMoveButtons(p1, "p1mv_move");
+  moveRow.addComponents(
+    new ButtonBuilder().setCustomId("p1mv_pass").setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary)
+  );
+  const moveRows = [moveRow];
   const canMega = p1.canMega && !p1.megaEvolved && !p1.gmaxed;
   const canGmax = p1.canGmax && !p1.gmaxed && !p1.megaEvolved;
   if (canMega || canGmax) {
@@ -911,37 +970,76 @@ async function startSimultaneousTurnAI(message, battle, channelId) {
   collector.on("collect", async (interaction) => {
     const id = interaction.customId;
 
+    // Pass
+    if (id === "p1mv_pass") {
+      await interaction.update({ components: [] });
+      gotP1Move({ isPass: true, name: "Pass" });
+      return;
+    }
+
+    // Mega evolve — apply, then FORCE move selection
     if (id === "p1mv_mega") {
       const md = p1.megaData;
       p1.megaEvolved = true; p1.canMega = false;
       p1.activeTypes = md.types || p1.activeTypes;
       p1.statBoosts = md.statBoost;
-      const newMaxHp = p1.maxHp + Math.floor(md.statBoost.hp * p1.level / 100);
+      const newMaxHp = p1.maxHp + Math.floor((md.statBoost?.hp || 0) * p1.level / 100);
       if (newMaxHp > p1.maxHp) { p1.currentHp += (newMaxHp - p1.maxHp); p1.maxHp = newMaxHp; }
       p1Transform = `💎 **${getBattleName(p1)}** ${md.isPrimal ? "underwent Primal Reversion" : "Mega Evolved"}!`;
-      const newRows = [buildMoveButtons(p1, "p1mv_aftermega")];
-      await interaction.update({ embeds: [buildPlayerMoveEmbed(battle, battle.challenger, `${p1Transform}\nNow choose your move:`)], components: newRows });
-      const mc = p1Msg.createMessageComponentCollector({ filter: i => i.user.id === battle.challenger, time: 60000, max: 1 });
-      mc.on("collect", async mi => { const mv = getCurrentMoves(p1)[parseInt(mi.customId.replace("p1mv_aftermega_", ""))] || getCurrentMoves(p1)[0]; await mi.update({ components: [] }); gotP1Move(mv); });
+      const afterMoveRow = buildMoveButtons(p1, "p1mv_after_move");
+      afterMoveRow.addComponents(new ButtonBuilder().setCustomId("p1mv_after_pass").setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary));
+      await interaction.update({
+        embeds: [buildPlayerMoveEmbed(battle, battle.challenger, `${p1Transform}\n\n**Now choose your move:**`)],
+        components: [afterMoveRow]
+      });
+      const mc = p1Msg.createMessageComponentCollector({
+        filter: i => i.user.id === battle.challenger && (i.customId.startsWith("p1mv_after_move_") || i.customId === "p1mv_after_pass"),
+        time: 60000, max: 1
+      });
+      mc.on("collect", async mi => {
+        const mv = mi.customId === "p1mv_after_pass"
+          ? { isPass: true, name: "Pass" }
+          : getCurrentMoves(p1)[parseInt(mi.customId.replace("p1mv_after_move_", ""))] || getCurrentMoves(p1)[0];
+        await mi.update({ components: [] });
+        gotP1Move(mv);
+      });
       mc.on("end", c => { if (c.size === 0) gotP1Move(getCurrentMoves(p1)[0]); });
       return;
     }
+
+    // Gmax — apply, then FORCE move selection
     if (id === "p1mv_gmax") {
       p1.gmaxed = true; p1.canGmax = false; p1.gmaxTurns = 3;
       p1.currentHp = Math.floor(p1.currentHp * 1.5); p1.maxHp = Math.floor(p1.maxHp * 1.5);
       p1Transform = `💍 **${getBattleName(p1)}** Gigantamaxed into **${p1.gmaxData.name}**!`;
-      const newRows = [buildMoveButtons(p1, "p1mv_aftergmax")];
-      await interaction.update({ embeds: [buildPlayerMoveEmbed(battle, battle.challenger, `${p1Transform}\nChoose your G-Max move:`)], components: newRows });
-      const gc = p1Msg.createMessageComponentCollector({ filter: i => i.user.id === battle.challenger, time: 60000, max: 1 });
-      gc.on("collect", async mi => { const mv = getCurrentMoves(p1)[parseInt(mi.customId.replace("p1mv_aftergmax_", ""))] || getCurrentMoves(p1)[0]; await mi.update({ components: [] }); gotP1Move(mv); });
+      const afterMoveRow = buildMoveButtons(p1, "p1mv_after_move");
+      afterMoveRow.addComponents(new ButtonBuilder().setCustomId("p1mv_after_pass").setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary));
+      await interaction.update({
+        embeds: [buildPlayerMoveEmbed(battle, battle.challenger, `${p1Transform}\n\n**Choose your G-Max move:**`)],
+        components: [afterMoveRow]
+      });
+      const gc = p1Msg.createMessageComponentCollector({
+        filter: i => i.user.id === battle.challenger && (i.customId.startsWith("p1mv_after_move_") || i.customId === "p1mv_after_pass"),
+        time: 60000, max: 1
+      });
+      gc.on("collect", async mi => {
+        const mv = mi.customId === "p1mv_after_pass"
+          ? { isPass: true, name: "Pass" }
+          : getCurrentMoves(p1)[parseInt(mi.customId.replace("p1mv_after_move_", ""))] || getCurrentMoves(p1)[0];
+        await mi.update({ components: [] });
+        gotP1Move(mv);
+      });
       gc.on("end", c => { if (c.size === 0) gotP1Move(getCurrentMoves(p1)[0]); });
       return;
     }
 
-    const moveIdx = parseInt(id.replace("p1mv_", ""));
-    const move = getCurrentMoves(p1)[moveIdx] || getCurrentMoves(p1)[0];
-    await interaction.update({ components: [] });
-    gotP1Move(move);
+    // Normal move
+    if (id.startsWith("p1mv_move_")) {
+      const moveIdx = parseInt(id.replace("p1mv_move_", ""));
+      const move = getCurrentMoves(p1)[moveIdx] || getCurrentMoves(p1)[0];
+      await interaction.update({ components: [] });
+      gotP1Move(move);
+    }
   });
 
   collector.on("end", c => {
@@ -1002,6 +1100,10 @@ async function resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Mo
 
   function executeMoveCalc(attacker, defender, move) {
     if (!move || move.isSwitchOnly) return null;
+
+    if (move.isPass) {
+      return { text: `⏭️ **${getBattleName(attacker)}** passed their turn!`, damage: 0, passed: true };
+    }
 
     if (move.isProtect) {
       return { text: `🛡️ **${getBattleName(attacker)}** used **${move.name}**! It's protecting itself!`, damage: 0, protected: true };
