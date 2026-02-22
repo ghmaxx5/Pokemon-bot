@@ -76,7 +76,7 @@ const MOVES = {
     { name: "Air Slash", power: 75, accuracy: 95 },
     { name: "Brave Bird", power: 120, accuracy: 100 },
     { name: "Hurricane", power: 110, accuracy: 70 },
-    { name: "Aerial Ace", power: 60, accuracy: 100 }
+    { name: "Aerial Ace", power: 60, accuracy: 100, neverMiss: true }
   ],
   psychic: [
     { name: "Confusion", power: 50, accuracy: 100 },
@@ -155,9 +155,9 @@ function getMovesForPokemon(types, level) {
   return selected;
 }
 
-function getEquippedMoves(moveNames, types, level) {
+function getEquippedMoves(moveNames, types, level, pokemonId = null) {
   const { getAvailableMoves } = require("./learnsets");
-  const available = getAvailableMoves(types, level);
+  const available = getAvailableMoves(types, level, pokemonId);
   const equipped = [];
 
   for (const name of moveNames) {

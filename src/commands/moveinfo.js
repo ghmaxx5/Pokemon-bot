@@ -101,6 +101,7 @@ const MOVE_DESCRIPTIONS = {
   "Dazzling Gleam": "The user damages opposing Pokémon by emitting a powerful flash.",
   "Play Rough": "The user plays rough with the target and attacks it. This may also lower the target's Attack stat.",
   "Draining Kiss": "The user steals the target's HP with a kiss. The user's HP is restored by over half of the damage taken by the target.",
+  "Aerial Ace": "The user confounds the target with speed, then slashes. This attack never misses regardless of accuracy or evasion changes.",
   "Fairy Wind": "The user stirs up a fairy wind and strikes the target with it."
 };
 
@@ -153,8 +154,9 @@ async function execute(message, args) {
       { name: "Type", value: `${emoji} ${capitalize(move.type)}`, inline: true },
       { name: "Category", value: category === "Physical" ? "💪 Physical" : category === "Special" ? "🔮 Special" : "📊 Status", inline: true },
       { name: "Power", value: `${move.power || "—"}`, inline: true },
-      { name: "Accuracy", value: `${move.accuracy || 100}%`, inline: true },
-      { name: "Priority", value: priority > 0 ? `+${priority} (goes first)` : "0 (normal)", inline: true }
+      { name: "Accuracy", value: move.neverMiss ? "✨ Never Misses" : `${move.accuracy || 100}%`, inline: true },
+      { name: "Priority", value: priority > 0 ? `+${priority} (goes first)` : "0 (normal)", inline: true },
+      ...(move.neverMiss ? [{ name: "Special", value: "🎯 Bypasses accuracy & evasion checks", inline: false }] : [])
     )
     .setColor(getTypeColor(move.type))
     .setFooter({ text: "Use p!moves to view and equip moves for your Pokémon" });

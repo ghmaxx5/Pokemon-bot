@@ -1,5 +1,13 @@
 const { MOVES } = require("./moves");
 
+// ── Pokémon-specific extra moves (by pokemon_id) ──
+// These are added on top of the type-generated learnset
+const POKEMON_SPECIFIC_MOVES = {
+  658: [ // Greninja
+    { name: "Aerial Ace", power: 60, accuracy: 100, type: "flying", learnLevel: 80, neverMiss: true }
+  ]
+};
+
 function generateLearnset(types) {
   const learnset = [];
   const addedMoves = new Set();
@@ -82,13 +90,33 @@ function getCoverageTypes(types) {
   return Array.from(coverage).slice(0, 2);
 }
 
-function getAvailableMoves(types, level) {
+function getAvailableMoves(types, level, pokemonId = null) {
   const learnset = generateLearnset(types);
+
+  // Merge in Pokémon-specific moves
+  if (pokemonId && POKEMON_SPECIFIC_MOVES[pokemonId]) {
+    for (const move of POKEMON_SPECIFIC_MOVES[pokemonId]) {
+      if (!learnset.some(m => m.name === move.name)) {
+        learnset.push(move);
+      }
+    }
+    learnset.sort((a, b) => a.learnLevel - b.learnLevel);
+  }
+
   return learnset.filter(m => m.learnLevel <= level);
 }
 
-function getNewMovesAtLevel(types, level) {
+function getNewMovesAtLevel(types, level, pokemonId = null) {
   const learnset = generateLearnset(types);
+
+  if (pokemonId && POKEMON_SPECIFIC_MOVES[pokemonId]) {
+    for (const move of POKEMON_SPECIFIC_MOVES[pokemonId]) {
+      if (!learnset.some(m => m.name === move.name)) {
+        learnset.push(move);
+      }
+    }
+  }
+
   return learnset.filter(m => m.learnLevel === level);
 }
 

@@ -32,7 +32,7 @@ async function execute(message, args) {
     return handleEquipMove(message, args, p, data, pokeName, userId);
   }
 
-  const availableMoves = getAvailableMoves(data.types, p.level);
+  const availableMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
   const equippedMoves = [p.move1, p.move2, p.move3, p.move4].filter(Boolean);
 
   let moveList = "";
@@ -196,7 +196,7 @@ async function handleEquipMove(message, args, p, data, pokeName, userId) {
   }
 
   const moveName = args.slice(2).join(" ");
-  const availableMoves = getAvailableMoves(data.types, p.level);
+  const availableMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
   const move = availableMoves.find(m => m.name.toLowerCase() === moveName.toLowerCase());
 
   if (!move) {

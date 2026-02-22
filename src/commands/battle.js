@@ -149,7 +149,7 @@ function preparePokemonForBattle(pRow, data) {
     data,
     maxHp: hp,
     currentHp: hp,
-    moves: getEquippedMoves([pRow.move1, pRow.move2, pRow.move3, pRow.move4], data.types, pRow.level),
+    moves: getEquippedMoves([pRow.move1, pRow.move2, pRow.move3, pRow.move4], data.types, pRow.level, pRow.pokemon_id),
     canMega: !!canMega,
     canGmax: !!canGmax,
     megaEvolved: false,
@@ -1169,7 +1169,7 @@ async function resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Mo
     const moveType = move.type || attacker.activeTypes[0] || "normal";
     const effectiveness = getEffectiveness(moveType, defender.activeTypes || defender.data.types);
     const stab = (attacker.activeTypes || attacker.data.types).includes(moveType);
-    const hit = Math.random() * 100 <= (move.accuracy || 100);
+    const hit = move.neverMiss ? true : Math.random() * 100 <= (move.accuracy || 100);
 
     if (!hit) {
       return { text: `**${getBattleName(attacker)}** used **${move.name}** — but it missed!`, damage: 0, missed: true };
