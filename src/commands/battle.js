@@ -1,10 +1,11 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require("discord.js");
 const { pool } = require("../database");
 const { getPokemonById, getPokemonImage } = require("../data/pokemonLoader");
 const { capitalize, totalIV } = require("../utils/helpers");
 const { getMovesForPokemon, getEquippedMoves } = require("../data/moves");
 const { getEffectiveness } = require("../data/types");
 const { getMegaData, getGmaxData, getGmaxMoves } = require("../data/mega");
+const { generateBattleImage } = require("../utils/battleImage");
 
 const activeBattles = new Map();
 
@@ -69,7 +70,7 @@ function getCurrentMoves(poke) {
   return poke.moves;
 }
 
-function buildBattleEmbed(battle, actionLog) {
+async function buildBattleEmbed(battle, actionLog) {
   const p1 = battle.p1Active;
   const p2 = battle.p2Active;
   const p1Name = getBattleName(p1);
@@ -84,28 +85,38 @@ function buildBattleEmbed(battle, actionLog) {
   const p1Types = (p1.activeTypes || p1.data.types).map(t => capitalize(t)).join("/");
   const p2Types = (p2.activeTypes || p2.data.types).map(t => capitalize(t)).join("/");
 
-  const p1TeamStatus = battle.is3v3 ? ` [${battle.p1Team.filter(p => p.currentHp > 0).length}/${battle.p1Team.length} alive]` : "";
-  const p2TeamStatus = battle.is3v3 ? ` [${battle.p2Team.filter(p => p.currentHp > 0).length}/${battle.p2Team.length} alive]` : "";
+  // Build team dot arrays for 3v3 indicator
+  const p1Dots = battle.is3v3 ? battle.p1Team.map(p => p.currentHp > 0) : null;
+  const p2Dots = battle.is3v3 ? battle.p2Team.map(p => p.currentHp > 0) : null;
+
+  // Generate the combined battle image via canvas
+  let attachment = null;
+  let imageUrl = getPokeImage(p2);
+  try {
+    const imgBuffer = await generateBattleImage(
+      { currentHp: p1.currentHp, maxHp: p1.maxHp, displayName: p1Name, level: p1.level, teamDots: p1Dots },
+      { currentHp: p2.currentHp, maxHp: p2.maxHp, displayName: p2Name, level: p2.level, teamDots: p2Dots },
+      getPokeImage(p1),
+      getPokeImage(p2)
+    );
+    attachment = new AttachmentBuilder(imgBuffer, { name: "battle.png" });
+    imageUrl = "attachment://battle.png";
+  } catch (err) {
+    console.error("Battle image generation failed:", err);
+  }
 
   const embed = new EmbedBuilder()
-    .setTitle("⚔️ Pokemon Battle!")
+    .setTitle("⚔️ Pokémon Battle!")
     .setDescription(
-      `**${p1Name}** [${p1Types}] (Lv. ${p1.level})${p1TeamStatus}\n` +
-      `${hpBar(p1.currentHp, p1.maxHp)}\n\n` +
-      `⚡ **VS** ⚡\n\n` +
-      `**${p2Name}** [${p2Types}] (Lv. ${p2.level})${p2TeamStatus}\n` +
-      `${hpBar(p2.currentHp, p2.maxHp)}\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       (statusLines ? `${statusLines}\n` : "") +
       (actionLog ? `📋 ${actionLog}\n\n` : "\n") +
       `<@${battle.turn}>'s turn! Choose your move:`
     )
     .setColor(0xe74c3c)
-    .setThumbnail(getPokeImage(battle.turn === battle.challenger ? p1 : p2))
-    .setImage(getPokeImage(battle.turn === battle.challenger ? p2 : p1))
-    .setFooter({ text: "60 seconds to choose • Moves show: Name (Power/Accuracy)" });
+    .setImage(imageUrl)
+    .setFooter({ text: `${p1Name} [${p1Types}] vs ${p2Name} [${p2Types}] • 60s to choose` });
 
-  return embed;
+  return { embed, attachment };
 }
 
 function buildMoveButtons(poke, prefix = "battle_move") {
@@ -593,7 +604,7 @@ async function startBattleTurn(message, battle, channelId, actionLog) {
     return executeAITurn(message, battle, channelId, attacker, defender, isP1Turn, actionLog);
   }
 
-  const embed = buildBattleEmbed(battle, actionLog);
+  const { embed, attachment } = await buildBattleEmbed(battle, actionLog);
   const moveRow = buildMoveButtons(attacker, "battle_move");
   const rows = [moveRow];
 
@@ -622,7 +633,9 @@ async function startBattleTurn(message, battle, channelId, actionLog) {
     rows.push(transformRow);
   }
 
-  const reply = await message.channel.send({ embeds: [embed], components: rows });
+  const sendOpts = { embeds: [embed], components: rows };
+  if (attachment) sendOpts.files = [attachment];
+  const reply = await message.channel.send(sendOpts);
 
   const collector = reply.createMessageComponentCollector({
     filter: (i) => i.user.id === battle.turn,
@@ -698,10 +711,11 @@ async function startBattleTurn(message, battle, channelId, actionLog) {
       const transformName = megaData.isPrimal ? "underwent Primal Reversion" : "Mega Evolved";
       const transformText = `💎 **${attacker.nickname || capitalize(attacker.data.name)}** ${transformName} into **${megaData.name}**!`;
 
-      const moveSelectEmbed = buildBattleEmbed(battle, transformText + "\n\nNow choose your move:");
-      moveSelectEmbed.setThumbnail(getPokeImage(attacker));
+      const { embed: moveSelectEmbed, attachment: msAttachment } = await buildBattleEmbed(battle, transformText + "\n\nNow choose your move:");
       const newMoveRow = buildMoveButtons(attacker, "battle_tmove");
-      await interaction.update({ embeds: [moveSelectEmbed], components: [newMoveRow] });
+      const msOpts = { embeds: [moveSelectEmbed], components: [newMoveRow] };
+      if (msAttachment) msOpts.files = [msAttachment];
+      await interaction.update(msOpts);
 
       const moveCollector = reply.createMessageComponentCollector({
         filter: (i2) => i2.user.id === battle.turn,
@@ -734,10 +748,11 @@ async function startBattleTurn(message, battle, channelId, actionLog) {
 
       const transformText = `💍 **${attacker.nickname || capitalize(attacker.data.name)}** Gigantamaxed into **${gmaxData.name}**!\nAll moves replaced with G-Max moves for 3 turns!`;
 
-      const moveSelectEmbed = buildBattleEmbed(battle, transformText + "\n\nChoose your G-Max move:");
-      moveSelectEmbed.setThumbnail(getPokeImage(attacker));
+      const { embed: moveSelectEmbed, attachment: msAttachment } = await buildBattleEmbed(battle, transformText + "\n\nChoose your G-Max move:");
       const newMoveRow = buildMoveButtons(attacker, "battle_tmove");
-      await interaction.update({ embeds: [moveSelectEmbed], components: [newMoveRow] });
+      const msOpts = { embeds: [moveSelectEmbed], components: [newMoveRow] };
+      if (msAttachment) msOpts.files = [msAttachment];
+      await interaction.update(msOpts);
 
       const moveCollector = reply.createMessageComponentCollector({
         filter: (i2) => i2.user.id === battle.turn,
@@ -828,13 +843,14 @@ async function executeBattleMove(interaction, battle, channelId, attacker, defen
     const resultText = `🛡️ **${attackerName}** used **${move.name}**! Protected from the next attack!`;
     battle.turn = battle.turn === battle.challenger ? battle.opponent : battle.challenger;
 
-    const embed = buildBattleEmbed(battle, `${prefixText}${resultText}`);
-    embed.setThumbnail(getPokeImage(attacker));
+    const { embed, attachment } = await buildBattleEmbed(battle, `${prefixText}${resultText}`);
+    const sendOpts = { embeds: [embed], components: [] };
+    if (attachment) sendOpts.files = [attachment];
 
     if (interaction) {
-      await interaction.update({ embeds: [embed], components: [] });
+      await interaction.update(sendOpts);
     } else {
-      await message.channel.send({ embeds: [embed] });
+      await message.channel.send(sendOpts);
     }
     return startBattleTurn(message, battle, channelId, `${attackerName} is protecting!`);
   }
@@ -873,10 +889,13 @@ async function executeBattleMove(interaction, battle, channelId, attacker, defen
 
   battle.turn = battle.turn === battle.challenger ? battle.opponent : battle.challenger;
 
+  const { embed: midEmbed, attachment: midAttachment } = await buildBattleEmbed(battle, `${prefixText}${resultText}`);
+  const midOpts = { embeds: [midEmbed], components: [] };
+  if (midAttachment) midOpts.files = [midAttachment];
   if (interaction) {
-    await interaction.update({ embeds: [{ description: `${prefixText}${resultText}`, color: 0xff9900 }], components: [] });
+    await interaction.update(midOpts);
   } else {
-    await message.channel.send({ embeds: [{ description: `${prefixText}${resultText}`, color: 0xff9900 }] });
+    await message.channel.send(midOpts);
   }
 
   await new Promise(r => setTimeout(r, battle.isAI ? 1500 : 500));
