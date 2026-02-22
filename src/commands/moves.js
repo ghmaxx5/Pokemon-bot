@@ -88,16 +88,21 @@ async function execute(message, args) {
       if (interaction.customId === "move_equip_select") {
         const moveName = interaction.values[0].replace("equip_", "");
 
+        // Defer immediately to prevent "interaction failed" on slow DB calls
+        await interaction.deferReply({ ephemeral: true });
+
         const current = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
         const row = current.rows[0];
         const slots = [row.move1, row.move2, row.move3, row.move4];
 
         if (slots.includes(moveName)) {
-          return interaction.reply({ content: `**${moveName}** is already equipped!`, ephemeral: true });
+          return interaction.editReply({ content: `**${moveName}** is already equipped!` });
         }
 
         let slotIdx = slots.findIndex(s => !s);
         if (slotIdx === -1) {
+          // All slots full — show replace buttons in a follow-up non-ephemeral message
+          // so the collector on `reply` can see the button clicks
           const replaceRow = new ActionRowBuilder();
           for (let i = 0; i < 4; i++) {
             replaceRow.addComponents(
@@ -107,21 +112,37 @@ async function execute(message, args) {
                 .setStyle(ButtonStyle.Secondary)
             );
           }
-          return interaction.reply({
-            content: `All 4 slots are full! Choose which move to **replace** with **${moveName}**:`,
-            components: [replaceRow],
-            ephemeral: true
-          });
+          await interaction.editReply({ content: `All 4 slots are full! Choose which to **replace** with **${moveName}**:` });
+          // Send the replace buttons on the main reply so the collector can pick them up
+          await reply.edit({ components: [replaceRow] }).catch(() => {});
+          return;
         }
 
         const slotCol = `move${slotIdx + 1}`;
         await pool.query(`UPDATE pokemon SET ${slotCol} = $1 WHERE id = $2`, [moveName, p.id]);
 
-        await interaction.reply({
-          content: `${getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal")} **${pokeName}** equipped **${moveName}** in slot ${slotIdx + 1}!`,
-          ephemeral: true
+        const moveEmoji = getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal");
+        await interaction.editReply({
+          content: `${moveEmoji} **${pokeName}** equipped **${moveName}** in slot ${slotIdx + 1}!`
         });
+
+        // Restore original select menu after equipping
+        const updatedResult = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
+        const updatedSlots = [updatedResult.rows[0].move1, updatedResult.rows[0].move2, updatedResult.rows[0].move3, updatedResult.rows[0].move4].filter(Boolean);
+        embed.setDescription(
+          `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `**Equipped Moves:**\n` +
+          formatEquippedMoves(updatedSlots, availableMoves, data.types) + "\n\n" +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `**All Available Moves:**\n${moveList}`
+        );
+        await reply.edit({ embeds: [embed], components: [selectRow] }).catch(() => {});
+
       } else if (interaction.customId.startsWith("replace_")) {
+        // Defer immediately
+        await interaction.deferUpdate();
+
         const parts = interaction.customId.split("_");
         const slotIdx = parseInt(parts[1]);
         const moveName = parts.slice(2).join("_");
@@ -132,9 +153,30 @@ async function execute(message, args) {
         const slotCol = `move${slotIdx + 1}`;
         await pool.query(`UPDATE pokemon SET ${slotCol} = $1 WHERE id = $2`, [moveName, p.id]);
 
-        await interaction.update({
-          content: `${getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal")} **${pokeName}** replaced **${oldMove || "empty"}** with **${moveName}** in slot ${slotIdx + 1}!`,
-          components: []
+        const moveEmoji = getTypeEmoji(availableMoves.find(m => m.name === moveName)?.type || "normal");
+
+        // Refresh equipped moves display
+        const updatedResult = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
+        const updatedSlots = [updatedResult.rows[0].move1, updatedResult.rows[0].move2, updatedResult.rows[0].move3, updatedResult.rows[0].move4].filter(Boolean);
+        embed.setDescription(
+          `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `**Equipped Moves:**\n` +
+          formatEquippedMoves(updatedSlots, availableMoves, data.types) + "\n\n" +
+          `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+          `**All Available Moves:**\n${moveList}`
+        );
+
+        // Restore original select menu and update the embed
+        await reply.edit({
+          embeds: [embed],
+          components: [selectRow]
+        }).catch(() => {});
+
+        // Send confirmation as a new ephemeral follow-up
+        await interaction.followUp({
+          content: `${moveEmoji} **${pokeName}** replaced **${oldMove || "empty"}** with **${moveName}** in slot ${slotIdx + 1}!`,
+          ephemeral: true
         });
       }
     });
