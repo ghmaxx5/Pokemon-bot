@@ -280,14 +280,10 @@ async function execute(message, args, spawns) {
       return message.reply(`Pokemon **${pokemonName}** not found! Check the name and try again.`);
     }
 
-    // Register in spawns map so p!catch works for everyone
-    const { spawns } = require("../index") || {};
-    // Pass spawns via a global event on the client instead
+    // Register in spawns map via client event (index.js listens for adminWildSpawn)
     const channelId = message.channel.id;
     const displayName = pokemonData.displayName || capitalize(pokemonData.name);
     const isEvent = pokemonData.isEventPokemon;
-
-    // Emit custom event on client so index.js spawn map is updated
     message.client.emit("adminWildSpawn", channelId, pokemonData.id);
 
     const image = getPokemonImage(pokemonData.id);

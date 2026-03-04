@@ -60,8 +60,12 @@ function getAllPokemon() {
 }
 
 function getPokemonImage(id, shiny = false) {
-  // Event pokemon use their base form's image from PokeAPI
   const p = pokemonData ? pokemonData.get(id) : null;
+  // Use custom image URL if set (event/form Pokemon)
+  if (p) {
+    if (shiny && p.imageUrlShiny) return p.imageUrlShiny;
+    if (p.imageUrl) return p.imageUrl;
+  }
   const imageId = (p && p.baseForm) ? p.baseForm : id;
   if (shiny) {
     return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/${imageId}.png`;
