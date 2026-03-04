@@ -339,6 +339,17 @@ const GMAX_POKEMON = {
       { name: "Max Airstream", power: 110, accuracy: 90, type: "flying" },
       { name: "Max Guard", power: 0, accuracy: 100, type: "normal", isProtect: true }
     ]
+  },
+
+  // ── Eternamax Eternatus ──────────────────────────────────────
+  890: {
+    name: "Eternamax Eternatus",
+    gmaxMoves: [
+      { name: "Eternabeam",      power: 160, accuracy: 90,  type: "dragon" },
+      { name: "G-Max Centiferno", power: 150, accuracy: 95,  type: "fire"   },
+      { name: "Max Ooze",        power: 130, accuracy: 100, type: "poison"  },
+      { name: "Max Guard",       power: 0,   accuracy: 100, type: "normal", isProtect: true }
+    ]
   }
 };
 

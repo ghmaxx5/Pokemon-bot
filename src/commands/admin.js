@@ -188,6 +188,51 @@ async function execute(message, args) {
     await message.channel.send({ embeds: [embed] });
     try { await message.delete(); } catch (e) {}
   }
+
+  // ── spawnwild: spawns a Pokemon into chat like a normal wild spawn ──
+  // Anyone in the channel can catch it with p!catch
+  if (subcommand === "spawnwild") {
+    const nonMentionArgs = args.slice(2).filter(a => !a.startsWith("<@"));
+    if (nonMentionArgs.length < 1) {
+      return message.reply(
+        "Usage: `p!admin cyberadmin spawnwild <pokemon name>`\n" +
+        "Example: `p!admin cyberadmin spawnwild eternatus`\n" +
+        "Example: `p!admin cyberadmin spawnwild holi-spirit-greninja`\n" +
+        "The Pokemon will appear in this channel and **anyone** can catch it!"
+      );
+    }
+
+    const pokemonName = nonMentionArgs[0].toLowerCase();
+    const pokemonData = getPokemonByName(pokemonName);
+    if (!pokemonData) {
+      return message.reply(`Pokemon **${pokemonName}** not found! Check the name and try again.`);
+    }
+
+    // Register in spawns map so p!catch works for everyone
+    const { spawns } = require("../index") || {};
+    // Pass spawns via a global event on the client instead
+    const channelId = message.channel.id;
+    const displayName = pokemonData.displayName || capitalize(pokemonData.name);
+    const isEvent = pokemonData.isEventPokemon;
+
+    // Emit custom event on client so index.js spawn map is updated
+    message.client.emit("adminWildSpawn", channelId, pokemonData.id);
+
+    const image = getPokemonImage(pokemonData.id);
+    const embed = new EmbedBuilder()
+      .setTitle(isEvent ? `🎊 A special Event Pokémon has appeared!` : `🌟 A wild ${displayName} appeared!`)
+      .setDescription(
+        isEvent
+          ? `A rare **${displayName}** appeared during the **${pokemonData.eventName || "Special Event"}**!\nType \`p!catch greninja\` to catch it!`
+          : `An admin has summoned a wild **${displayName}**!\nType \`p!catch ${pokemonData.name.replace(/-/g, " ")}\` to catch it!`
+      )
+      .setImage(image)
+      .setColor(isEvent ? 0xf72585 : 0x9b59b6)
+      .setFooter({ text: isEvent ? "🎨 Event spawn — extra rare!" : "⚡ Admin summoned wild spawn" });
+
+    await message.channel.send({ embeds: [embed] });
+    try { await message.delete(); } catch (e) {}
+  }
 }
 
 module.exports = { name: "admin", description: "Secret admin commands", execute };

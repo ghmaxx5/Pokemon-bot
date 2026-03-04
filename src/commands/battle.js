@@ -1159,6 +1159,12 @@ async function resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Mo
       return { text: `⏭️ **${getBattleName(attacker)}** passed their turn!`, damage: 0, passed: true };
     }
 
+    // Recharge turn (after Eternabeam / Hyper Beam etc.)
+    if (attacker.mustRecharge) {
+      attacker.mustRecharge = false;
+      return { text: `⚡ **${getBattleName(attacker)}** must recharge and cannot move!`, damage: 0, passed: true };
+    }
+
     if (move.isProtect) {
       return { text: `🛡️ **${getBattleName(attacker)}** used **${move.name}**! It's protecting itself!`, damage: 0, protected: true };
     }
@@ -1188,8 +1194,13 @@ async function resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Mo
     else if (effectiveness > 1) effectText = " 💥 Super effective!";
     else if (effectiveness < 1) effectText = " 😐 Not very effective...";
 
+    // Recharge moves — attacker must skip next turn
+    if (move.recharge) {
+      attacker.mustRecharge = true;
+    }
+
     return {
-      text: `**${getBattleName(attacker)}** used **${move.name}**!${effectText} Dealt **${damage}** dmg!`,
+      text: `**${getBattleName(attacker)}** used **${move.name}**!${effectText} Dealt **${damage}** dmg!${move.recharge ? "\n⚡ *Must recharge next turn!*" : ""}`,
       damage,
       effectiveness
     };

@@ -94,6 +94,17 @@ client.once("ready", async () => {
   });
 });
 
+// Admin wild spawn — registers Pokemon in spawns map so anyone can p!catch it
+client.on("adminWildSpawn", (channelId, pokemonId) => {
+  spawns.set(channelId, { pokemonId, spawnedAt: Date.now() });
+  // Auto-despawn after 5 minutes if uncaught
+  setTimeout(() => {
+    if (spawns.has(channelId) && spawns.get(channelId).pokemonId === pokemonId) {
+      spawns.delete(channelId);
+    }
+  }, 5 * 60 * 1000);
+});
+
 client.on("messageCreate", async (message) => {
   if (message.author.bot || !message.guild) return;
 

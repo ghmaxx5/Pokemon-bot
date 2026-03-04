@@ -13,6 +13,13 @@ const POKEMON_SPECIFIC_MOVES = {
     { name: "Prismatic Shield", power: 10,  accuracy: 100, type: "water",  learnLevel: 1, isProtect: true }
   ],
 
+  // ── Eternatus ─────────────────────────────────────────────────
+  // Eternabeam is its signature — only available to Eternatus
+  // Learns at level 84 (official learn level)
+  890: [
+    { name: "Eternabeam", power: 160, accuracy: 90, type: "dragon", learnLevel: 84, recharge: true }
+  ],
+
   // ══════════════════════════════════════════════════════════════
   //  DRAGON ASCENT  –  Flying / 120 power / 100 acc
   //  Rayquaza's signature. Learned by legendary/godly dragons.

@@ -113,7 +113,8 @@ const MOVES = {
     { name: "Dragon Claw", power: 80, accuracy: 100 },
     { name: "Dragon Pulse", power: 85, accuracy: 100 },
     { name: "Outrage", power: 120, accuracy: 100 },
-    { name: "Draco Meteor", power: 130, accuracy: 90 }
+    { name: "Draco Meteor", power: 130, accuracy: 90 },
+    { name: "Eternabeam", power: 160, accuracy: 90, recharge: true }
   ],
   dark: [
     { name: "Bite", power: 60, accuracy: 100 },

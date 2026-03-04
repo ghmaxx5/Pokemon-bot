@@ -108,6 +108,9 @@ const MOVE_DESCRIPTIONS = {
   "Powder Bomb": "💣 Holi Spirit Greninja detonates a dense cloud of compressed color powder. High damage with no drawbacks. Exclusive to Holi Spirit (Greninja).",
   "Vibrant Wave": "🌊 Holi Spirit Greninja releases a cascading wave of vibrant colors that washes over the target. May lower the target's Special Defense. Exclusive to Holi Spirit (Greninja).",
   "Prismatic Shield": "🛡️ Holi Spirit Greninja wraps itself in a shimmering barrier of color powder, blocking all damage for one turn. Exclusive to Holi Spirit (Greninja).",
+  "Eternabeam": "The signature move of Eternamax Eternatus. An overwhelming beam of infinite energy. The user can't move on the next turn after using this move.",
+  "G-Max Centiferno": "A G-Max Move used by Eternamax Eternatus. It traps the target in a vortex of infinite fire that deals damage for four to five turns.",
+  "Eternabeam": "⚡ Eternatus fires a massive beam of energy that destroys everything in its path. The most powerful move in existence — but Eternatus must recharge the next turn. Exclusive to Eternatus.",
   "Fairy Wind": "The user stirs up a fairy wind and strikes the target with it."
 };
 
@@ -154,6 +157,8 @@ async function execute(message, args) {
   const emoji = getTypeEmoji(move.type);
   const isEventMove = move.type === "event" || ["Coloursplash","Powder Bomb","Vibrant Wave","Prismatic Shield"].includes(move.name);
   const isProtect = move.isProtect;
+  const isRecharge = move.recharge;
+  const isEternabeam = move.name === "Eternabeam";
 
   const embed = new EmbedBuilder()
     .setTitle(`${emoji} ${move.name}${isEventMove ? "  🎊" : ""}`)
@@ -166,6 +171,8 @@ async function execute(message, args) {
       { name: "Priority", value: isProtect ? "+4 (goes first)" : priority > 0 ? `+${priority} (goes first)` : "0 (normal)", inline: true },
       ...(move.neverMiss ? [{ name: "Special", value: "🎯 Bypasses accuracy & evasion checks", inline: false }] : []),
       ...(isProtect ? [{ name: "Special", value: "🛡️ Blocks all damage for one turn", inline: false }] : []),
+      ...(isRecharge ? [{ name: "⚡ Recharge", value: "User must skip the next turn after using this move", inline: false }] : []),
+      ...(isEternabeam ? [{ name: "Exclusive To", value: "👾 Eternatus / Eternamax Eternatus", inline: false }] : []),
       ...(isEventMove ? [{ name: "Exclusive To", value: "🎨 Holi Spirit (Greninja) — Holi 2025 Event", inline: false }] : [])
     )
     .setColor(isEventMove ? 0xf72585 : getTypeColor(move.type))
