@@ -3,10 +3,6 @@ const { MOVES } = require("./moves");
 // ── Pokémon-specific extra moves (by pokemon_id) ──
 // These are added on top of the type-generated learnset
 const POKEMON_SPECIFIC_MOVES = {
-  // ── Greninja ──────────────────────────────────────────────────
-  658: [
-    { name: "Aerial Ace", power: 60, accuracy: 100, type: "flying", learnLevel: 80, neverMiss: true }
-  ],
 
   // ── Holi Spirit Greninja (Event) ─────────────────────────────
   // Fixed moveset — always these 4 regardless of level
@@ -194,13 +190,37 @@ function getCoverageTypes(types) {
 }
 
 function getAvailableMoves(types, level, pokemonId = null) {
-  // Event Pokémon with fixed movesets — skip type-generated learnset entirely
+  // Event Pokémon with fixed movesets — return ONLY their signature moves
+  // BUT also merge in the base form's full learnset so user can replace slots
   if (pokemonId && POKEMON_SPECIFIC_MOVES[pokemonId]) {
     const specific = POKEMON_SPECIFIC_MOVES[pokemonId];
-    // If ALL moves are at learnLevel 1, treat as a fixed moveset (event mon)
     const isFixedMoveset = specific.every(m => m.learnLevel <= 1);
     if (isFixedMoveset) {
-      return specific.map(m => ({ ...m }));
+      // Load base form moves if this pokemon has a baseForm
+      const { getPokemonById } = require("./pokemonLoader");
+      const eventPoke = getPokemonById(pokemonId);
+      let baseMoves = [];
+      if (eventPoke && eventPoke.baseForm) {
+        const baseData = getPokemonById(eventPoke.baseForm);
+        if (baseData) {
+          // Generate full learnset for base form
+          const baseLearnset = generateLearnset(baseData.types);
+          // Also include base form specific moves (e.g. Aerial Ace for Greninja)
+          if (POKEMON_SPECIFIC_MOVES[eventPoke.baseForm]) {
+            for (const m of POKEMON_SPECIFIC_MOVES[eventPoke.baseForm]) {
+              if (!baseLearnset.some(b => b.name === m.name)) baseLearnset.push(m);
+            }
+          }
+          baseMoves = baseLearnset.filter(m => m.learnLevel <= level);
+        }
+      }
+      // Signature moves first, then base form moves (deduped)
+      const sigNames = new Set(specific.map(m => m.name));
+      const merged = [
+        ...specific.map(m => ({ ...m })),
+        ...baseMoves.filter(m => !sigNames.has(m.name))
+      ];
+      return merged;
     }
   }
 

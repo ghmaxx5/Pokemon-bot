@@ -282,6 +282,14 @@ async function execute(message, args) {
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
     if (poke.rows.length === 0) return message.reply("Pokemon not found in your collection.");
 
+    // Block replacing the Color Pouch on Holi Spirit Greninja
+    if (poke.rows[0].held_item === "hand_held_color_pouch") {
+      const pokeData = getPokemonById(poke.rows[0].pokemon_id);
+      if (pokeData && pokeData.isEventPokemon) {
+        return message.reply("🎨 The **Hand-held Color Pouch** is bound to **Holi Spirit (Greninja)** and cannot be replaced!");
+      }
+    }
+
     if (poke.rows[0].held_item) {
       return message.reply(`This Pokemon is already holding a **${SHOP_ITEMS[poke.rows[0].held_item]?.name || poke.rows[0].held_item}**! Use \`shop unhold <pokemon number>\` first.`);
     }
@@ -304,6 +312,15 @@ async function execute(message, args) {
     if (!poke.rows[0].held_item) return message.reply("That Pokemon isn't holding anything.");
 
     const heldItem = poke.rows[0].held_item;
+
+    // Block removing the Color Pouch from Holi Spirit Greninja
+    if (heldItem === "hand_held_color_pouch") {
+      const pokeData = getPokemonById(poke.rows[0].pokemon_id);
+      if (pokeData && pokeData.isEventPokemon) {
+        return message.reply("🎨 The **Hand-held Color Pouch** is bound to **Holi Spirit (Greninja)** and cannot be removed!");
+      }
+    }
+
     await pool.query("UPDATE pokemon SET held_item = NULL WHERE id = $1", [pokemonDbId]);
     await pool.query(
       `INSERT INTO user_inventory (user_id, item_id, quantity) VALUES ($1, $2, 1)

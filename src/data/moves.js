@@ -84,7 +84,8 @@ const MOVES = {
     { name: "Psychic", power: 90, accuracy: 100 },
     { name: "Psyshock", power: 80, accuracy: 100 },
     { name: "Future Sight", power: 120, accuracy: 100 },
-    { name: "Zen Headbutt", power: 80, accuracy: 90 }
+    { name: "Zen Headbutt", power: 80, accuracy: 90 },
+    { name: "Chromatic Burst", power: 95, accuracy: 100, isSignature: true }
   ],
   bug: [
     { name: "Bug Bite", power: 60, accuracy: 100 },

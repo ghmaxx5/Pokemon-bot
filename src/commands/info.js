@@ -64,6 +64,7 @@ async function execute(message, args) {
   let heldItemStr = "None";
   if (p.held_item === "mega_stone") heldItemStr = "💎 Mega Stone";
   else if (p.held_item === "gmax_ring") heldItemStr = "💍 Gigantamax Ring";
+  else if (p.held_item === "hand_held_color_pouch") heldItemStr = "🎨 Hand-held Color Pouch *(bound)*";
 
   const megaData = getMegaData(p.pokemon_id);
   const gmaxData = getGmaxData(p.pokemon_id);
