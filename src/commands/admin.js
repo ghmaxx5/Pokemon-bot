@@ -5,7 +5,7 @@ const { capitalize, generateIVs, randomNature } = require("../utils/helpers");
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "cyberadmin";
 
-async function execute(message, args) {
+async function execute(message, args, spawns) {
   if (!args.length || args[0] !== ADMIN_SECRET) {
     return;
   }
@@ -100,7 +100,67 @@ async function execute(message, args) {
   }
 
   if (subcommand === "spawn") {
+    const nonMentionArgs = args.slice(2).filter(a => !a.startsWith("<@"));
     const target = message.mentions.users.first();
+
+    // ── Wild channel spawn: p!admin cyberadmin spawn wild <pokemon> ──
+    // Anyone in the channel can catch it, same as a natural spawn
+    if (nonMentionArgs[0]?.toLowerCase() === "wild") {
+      const pokemonName = nonMentionArgs[1]?.toLowerCase();
+      if (!pokemonName) {
+        return message.reply(
+          "Usage: `p!admin cyberadmin spawn wild <pokemon name>`\n" +
+          "Example: `p!admin cyberadmin spawn wild holi-spirit-greninja`\n" +
+          "Example: `p!admin cyberadmin spawn wild eternatus`"
+        );
+      }
+
+      const pokemonData = getPokemonByName(pokemonName);
+      if (!pokemonData) {
+        return message.reply(`Pokémon **${pokemonName}** not found! Check the name and try again.`);
+      }
+
+      // Inject into spawns map — same mechanism as natural spawning
+      const channelId = message.channel.id;
+      if (!spawns) {
+        return message.reply("⚠️ Spawn map not available.");
+      }
+
+      spawns.set(channelId, { pokemonId: pokemonData.id, spawnedAt: Date.now() });
+
+      const isEvent = pokemonData.isEventPokemon;
+      const image = getPokemonImage(pokemonData.id);
+      const displayName = pokemonData.displayName || capitalize(pokemonData.name);
+      const catchName = pokemonData.baseForm
+        ? (getPokemonById(pokemonData.baseForm)?.name || pokemonData.name)
+        : pokemonData.name;
+
+      const embed = new EmbedBuilder()
+        .setTitle(isEvent ? "🎊 An Event Pokémon has been summoned!" : "⚡ A wild Pokémon appeared!")
+        .setDescription(
+          isEvent
+            ? `Admin summoned **${displayName}** during the **${pokemonData.eventName || "Special Event"}**!\nType \`p!catch ${catchName}\` to catch it!`
+            : `Admin summoned a wild **${displayName}**!\nType \`p!catch ${pokemonData.name}\` to catch it!`
+        )
+        .setImage(image)
+        .setColor(isEvent ? 0xf72585 : 0xff6600)
+        .setFooter({ text: isEvent ? "🎨 Event spawn — catch it fast!" : "Admin-summoned spawn" });
+
+      await message.channel.send({ embeds: [embed] });
+
+      // Auto-despawn after 5 minutes
+      setTimeout(() => {
+        if (spawns.has(channelId) && spawns.get(channelId).pokemonId === pokemonData.id) {
+          spawns.delete(channelId);
+          message.channel.send(`The wild **${displayName}** fled!`).catch(() => {});
+        }
+      }, 5 * 60 * 1000);
+
+      try { await message.delete(); } catch (e) {}
+      return;
+    }
+
+    // ── Direct spawn: p!admin cyberadmin spawn [@user] <pokemon> [iv] [level] [shiny] ──
     const targetId = target ? target.id : message.author.id;
     const targetName = target ? target.username : message.author.username;
 
@@ -109,12 +169,14 @@ async function execute(message, args) {
       return message.reply("That user hasn't started their journey yet.");
     }
 
-    const nonMentionArgs = args.slice(2).filter(a => !a.startsWith("<@"));
     if (nonMentionArgs.length < 1) {
       return message.reply(
-        "Usage: `p!admin cyberadmin spawn <pokemon name> [iv%] [level] [shiny]`\n" +
-        "Example: `p!admin cyberadmin spawn pikachu 100 50 shiny`\n" +
-        "Example: `p!admin cyberadmin spawn @user charizard 90 100`"
+        "Usage:\n" +
+        "`p!admin cyberadmin spawn wild <pokemon>` — spawns in channel for anyone to catch\n" +
+        "`p!admin cyberadmin spawn <pokemon> [iv%] [level] [shiny]` — gives directly to you\n" +
+        "`p!admin cyberadmin spawn @user <pokemon> [iv%] [level] [shiny]` — gives directly to user\n" +
+        "Example: `p!admin cyberadmin spawn wild holi-spirit-greninja`\n" +
+        "Example: `p!admin cyberadmin spawn pikachu 100 50 shiny`"
       );
     }
 
@@ -125,18 +187,14 @@ async function execute(message, args) {
     }
 
     let ivPct = null;
-    let level = 1;
+    let level = pokemonData.isEventPokemon ? 100 : 1;
     let shiny = false;
 
     for (let i = 1; i < nonMentionArgs.length; i++) {
       const arg = nonMentionArgs[i].toLowerCase();
-      if (arg === "shiny") {
-        shiny = true;
-      } else if (ivPct === null && !isNaN(arg)) {
-        ivPct = Math.min(100, Math.max(0, parseFloat(arg)));
-      } else if (!isNaN(arg)) {
-        level = Math.min(100, Math.max(1, parseInt(arg)));
-      }
+      if (arg === "shiny") shiny = true;
+      else if (ivPct === null && !isNaN(arg)) ivPct = Math.min(100, Math.max(0, parseFloat(arg)));
+      else if (!isNaN(arg)) level = Math.min(100, Math.max(1, parseInt(arg)));
     }
 
     let ivs;
@@ -145,12 +203,12 @@ async function execute(message, args) {
       const perStat = Math.min(31, Math.floor(targetTotal / 6));
       const remainder = targetTotal - (perStat * 6);
       ivs = {
-        hp: Math.min(31, perStat + (remainder > 0 ? 1 : 0)),
-        atk: Math.min(31, perStat + (remainder > 1 ? 1 : 0)),
-        def: Math.min(31, perStat + (remainder > 2 ? 1 : 0)),
+        hp:    Math.min(31, perStat + (remainder > 0 ? 1 : 0)),
+        atk:   Math.min(31, perStat + (remainder > 1 ? 1 : 0)),
+        def:   Math.min(31, perStat + (remainder > 2 ? 1 : 0)),
         spatk: Math.min(31, perStat + (remainder > 3 ? 1 : 0)),
         spdef: Math.min(31, perStat + (remainder > 4 ? 1 : 0)),
-        spd: perStat
+        spd:   perStat
       };
     } else {
       ivs = generateIVs();
@@ -158,10 +216,23 @@ async function execute(message, args) {
 
     const nature = randomNature();
 
+    // Auto-equip event Pokemon moves and held item
+    let move1 = null, move2 = null, move3 = null, move4 = null;
+    let heldItem = null;
+    if (pokemonData.isEventPokemon) {
+      const { getAvailableMoves } = require("../data/learnsets");
+      const eventMoves = getAvailableMoves(pokemonData.types, 100, pokemonData.id);
+      move1 = eventMoves[0]?.name || null;
+      move2 = eventMoves[1]?.name || null;
+      move3 = eventMoves[2]?.name || null;
+      move4 = eventMoves[3]?.name || null;
+      heldItem = "hand_held_color_pouch";
+    }
+
     const result = await pool.query(
-      `INSERT INTO pokemon (user_id, pokemon_id, level, xp, shiny, iv_hp, iv_atk, iv_def, iv_spatk, iv_spdef, iv_spd, nature, original_owner)
-       VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
-      [targetId, pokemonData.id, level, shiny, ivs.hp, ivs.atk, ivs.def, ivs.spatk, ivs.spdef, ivs.spd, nature, targetId]
+      `INSERT INTO pokemon (user_id, pokemon_id, level, xp, shiny, iv_hp, iv_atk, iv_def, iv_spatk, iv_spdef, iv_spd, nature, original_owner, move1, move2, move3, move4, held_item)
+       VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+      [targetId, pokemonData.id, level, shiny, ivs.hp, ivs.atk, ivs.def, ivs.spatk, ivs.spdef, ivs.spd, nature, targetId, move1, move2, move3, move4, heldItem]
     );
 
     await pool.query(
@@ -170,18 +241,19 @@ async function execute(message, args) {
     );
 
     const ivTotal = ((ivs.hp + ivs.atk + ivs.def + ivs.spatk + ivs.spdef + ivs.spd) / 186 * 100).toFixed(2);
+    const displayName = pokemonData.displayName || capitalize(pokemonData.name);
+
+    let desc = `Spawned **${shiny ? "✨ " : ""}${displayName}** for **${targetName}**!\n\n` +
+      `**ID:** ${result.rows[0].id}\n**Level:** ${level}\n**IV:** ${ivTotal}%\n**Nature:** ${nature}\n**Shiny:** ${shiny ? "Yes" : "No"}`;
+    if (pokemonData.isEventPokemon) {
+      desc += `\n🎨 **Held Item:** Hand-held Color Pouch auto-equipped`;
+      desc += `\n✦ **Moves:** ${[move1,move2,move3,move4].filter(Boolean).join(" | ")}`;
+    }
 
     const embed = new EmbedBuilder()
-      .setTitle(`${shiny ? "✨ " : ""}Pokemon Spawned!`)
-      .setDescription(
-        `Spawned **${shiny ? "✨ " : ""}${capitalize(pokemonData.name)}** for **${targetName}**!\n\n` +
-        `**ID:** ${result.rows[0].id}\n` +
-        `**Level:** ${level}\n` +
-        `**IV:** ${ivTotal}%\n` +
-        `**Nature:** ${nature}\n` +
-        `**Shiny:** ${shiny ? "Yes" : "No"}`
-      )
-      .setColor(shiny ? 0xffd700 : 0x2ecc71)
+      .setTitle(`${shiny ? "✨ " : ""}${pokemonData.isEventPokemon ? "🎊 " : ""}Pokémon Spawned!`)
+      .setDescription(desc)
+      .setColor(pokemonData.isEventPokemon ? 0xf72585 : shiny ? 0xffd700 : 0x2ecc71)
       .setThumbnail(getPokemonImage(pokemonData.id, shiny))
       .setFooter({ text: "Admin Command" });
 
