@@ -104,6 +104,10 @@ const MOVE_DESCRIPTIONS = {
   "Aerial Ace": "The user confounds the target with speed, then slashes. This attack never misses regardless of accuracy or evasion changes.",
   "Dragon Ascent": "The user soars and then strikes its target by dropping out of the sky at high speed. This also lowers the user's Defense and Sp. Def stats.",
   "Meteor Mash": "The target is hit with a hard punch fired like a meteor. This may also raise the user's Attack stat.",
+  "Coloursplash": "🎨 Holi Spirit Greninja hurls a burst of prismatic festival powder at the target. Super effective against Dark-types. Exclusive to Holi Spirit (Greninja).",
+  "Powder Bomb": "💣 Holi Spirit Greninja detonates a dense cloud of compressed color powder. High damage with no drawbacks. Exclusive to Holi Spirit (Greninja).",
+  "Vibrant Wave": "🌊 Holi Spirit Greninja releases a cascading wave of vibrant colors that washes over the target. May lower the target's Special Defense. Exclusive to Holi Spirit (Greninja).",
+  "Prismatic Shield": "🛡️ Holi Spirit Greninja wraps itself in a shimmering barrier of color powder, blocking all damage for one turn. Exclusive to Holi Spirit (Greninja).",
   "Fairy Wind": "The user stirs up a fairy wind and strikes the target with it."
 };
 
@@ -148,20 +152,24 @@ async function execute(message, args) {
   const priority = getPriority(move.name);
   const category = getCategory(move.power, move.name);
   const emoji = getTypeEmoji(move.type);
+  const isEventMove = move.type === "event" || ["Coloursplash","Powder Bomb","Vibrant Wave","Prismatic Shield"].includes(move.name);
+  const isProtect = move.isProtect;
 
   const embed = new EmbedBuilder()
-    .setTitle(`${emoji} ${move.name}`)
-    .setDescription(desc)
+    .setTitle(`${emoji} ${move.name}${isEventMove ? "  🎊" : ""}`)
+    .setDescription(desc + (isEventMove ? "\n\n*🎨 Event Exclusive — Holi Spirit (Greninja) only*" : ""))
     .addFields(
-      { name: "Type", value: `${emoji} ${capitalize(move.type)}`, inline: true },
-      { name: "Category", value: category === "Physical" ? "💪 Physical" : category === "Special" ? "🔮 Special" : "📊 Status", inline: true },
-      { name: "Power", value: `${move.power || "—"}`, inline: true },
+      { name: "Type", value: `${emoji} ${capitalize(move.type === "event" ? "fairy" : move.type)}`, inline: true },
+      { name: "Category", value: isProtect ? "🛡️ Status" : category === "Physical" ? "💪 Physical" : category === "Special" ? "🔮 Special" : "📊 Status", inline: true },
+      { name: "Power", value: isProtect ? "—" : `${move.power || "—"}`, inline: true },
       { name: "Accuracy", value: move.neverMiss ? "✨ Never Misses" : `${move.accuracy || 100}%`, inline: true },
-      { name: "Priority", value: priority > 0 ? `+${priority} (goes first)` : "0 (normal)", inline: true },
-      ...(move.neverMiss ? [{ name: "Special", value: "🎯 Bypasses accuracy & evasion checks", inline: false }] : [])
+      { name: "Priority", value: isProtect ? "+4 (goes first)" : priority > 0 ? `+${priority} (goes first)` : "0 (normal)", inline: true },
+      ...(move.neverMiss ? [{ name: "Special", value: "🎯 Bypasses accuracy & evasion checks", inline: false }] : []),
+      ...(isProtect ? [{ name: "Special", value: "🛡️ Blocks all damage for one turn", inline: false }] : []),
+      ...(isEventMove ? [{ name: "Exclusive To", value: "🎨 Holi Spirit (Greninja) — Holi 2025 Event", inline: false }] : [])
     )
-    .setColor(getTypeColor(move.type))
-    .setFooter({ text: "Use p!moves to view and equip moves for your Pokémon" });
+    .setColor(isEventMove ? 0xf72585 : getTypeColor(move.type))
+    .setFooter({ text: isEventMove ? "🎊 Holi Event 2025 Signature Move" : "Use p!moves to view and equip moves for your Pokémon" });
 
   return message.channel.send({ embeds: [embed] });
 }
