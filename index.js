@@ -12,6 +12,7 @@ const {
   loadPokemonData,
   getPokemonById,
   getRandomPokemon,
+  getRandomEventPokemon,
   getPokemonImage,
 } = require("./src/data/pokemonLoader");
 const { xpForLevel, capitalize, getTypeEmoji } = require("./src/utils/helpers");

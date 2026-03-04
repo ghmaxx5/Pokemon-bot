@@ -159,7 +159,8 @@ function preparePokemonForBattle(pRow, data) {
     gmaxData: canGmax ? getGmaxData(pRow.pokemon_id) : null,
     activeTypes: [...data.types],
     statBoosts: { hp: 0, atk: 0, def: 0, spatk: 0, spdef: 0, spd: 0 },
-    baseMaxHp: hp
+    baseMaxHp: hp,
+    heldItem: heldItem || null
   };
 }
 
@@ -1177,6 +1178,10 @@ async function resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Mo
 
     let damage = calcDamage(attacker.level, move.power, atkStat, defStat, effectiveness, stab);
     if (attacker.gmaxed) damage = Math.floor(damage * 1.3);
+    // Hand-held Color Pouch: +20% boost to Fairy and Water moves
+    if (attacker.heldItem === "hand_held_color_pouch" && (move.type === "fairy" || move.type === "water")) {
+      damage = Math.floor(damage * 1.2);
+    }
 
     let effectText = "";
     if (effectiveness === 0) { effectText = " ❌ No effect!"; damage = 0; }

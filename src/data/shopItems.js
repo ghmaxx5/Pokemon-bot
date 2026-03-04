@@ -17,6 +17,16 @@ const SHOP_ITEMS = {
     category: "battle",
     holdable: true
   },
+  hand_held_color_pouch: {
+    id: "hand_held_color_pouch",
+    name: "Hand-held Color Pouch",
+    emoji: "🎨",
+    description: "A pouch filled with vibrant Holi colors. Exclusive to Holi Spirit Greninja — boosts the power of Fairy and Water moves by 20% in battle.",
+    price: 0,
+    category: "event",
+    holdable: true,
+    eventOnly: true
+  },
   rare_candy: {
     id: "rare_candy",
     name: "Rare Candy",

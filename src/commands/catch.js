@@ -28,6 +28,14 @@ async function execute(message, args, spawns) {
   const pokemonInfo = getPokemonById(spawn.pokemonId);
   if (!pokemonInfo) return;
 
+  // For event Pokemon, accept the base form name OR the full event name
+  const acceptedNames = [pokemonInfo.name.toLowerCase()];
+  if (pokemonInfo.baseForm) {
+    const baseData = getPokemonById(pokemonInfo.baseForm);
+    if (baseData) acceptedNames.push(baseData.name.toLowerCase());
+  }
+  if (pokemonInfo.displayName) acceptedNames.push(pokemonInfo.displayName.toLowerCase());
+
   const masterBall = await pool.query(
     "SELECT quantity FROM user_inventory WHERE user_id = $1 AND item_id = 'master_ball' AND quantity > 0",
     [userId]
@@ -41,7 +49,7 @@ async function execute(message, args, spawns) {
     }
     await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = 'master_ball'", [userId]);
     await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = 'master_ball' AND quantity <= 0", [userId]);
-  } else if (guess !== pokemonInfo.name.toLowerCase()) {
+  } else if (!acceptedNames.includes(guess)) {
     return message.reply("That is not the right Pokemon!");
   }
 
@@ -67,12 +75,26 @@ async function execute(message, args, spawns) {
   const ivs = generateIVs();
   const nature = randomNature();
   const shiny = Math.random() < shinyRate;
-  const level = Math.floor(Math.random() * 30) + 1;
+  // Event Pokemon are always caught at level 100
+  const level = pokemonInfo.isEventPokemon ? 100 : Math.floor(Math.random() * 30) + 1;
+
+  // For event Pokemon auto-equip their signature moves
+  let move1 = null, move2 = null, move3 = null, move4 = null;
+  let heldItem = null;
+  if (pokemonInfo.isEventPokemon) {
+    const { getAvailableMoves } = require("../data/learnsets");
+    const eventMoves = getAvailableMoves(pokemonInfo.types, 100, pokemonInfo.id);
+    move1 = eventMoves[0]?.name || null;
+    move2 = eventMoves[1]?.name || null;
+    move3 = eventMoves[2]?.name || null;
+    move4 = eventMoves[3]?.name || null;
+    heldItem = "hand_held_color_pouch";
+  }
 
   const result = await pool.query(
-    `INSERT INTO pokemon (user_id, pokemon_id, level, xp, shiny, iv_hp, iv_atk, iv_def, iv_spatk, iv_spdef, iv_spd, nature, original_owner)
-     VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
-    [userId, spawn.pokemonId, level, shiny, ivs.hp, ivs.atk, ivs.def, ivs.spatk, ivs.spdef, ivs.spd, nature, userId]
+    `INSERT INTO pokemon (user_id, pokemon_id, level, xp, shiny, iv_hp, iv_atk, iv_def, iv_spatk, iv_spdef, iv_spd, nature, original_owner, move1, move2, move3, move4, held_item)
+     VALUES ($1, $2, $3, 0, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+    [userId, spawn.pokemonId, level, shiny, ivs.hp, ivs.atk, ivs.def, ivs.spatk, ivs.spdef, ivs.spd, nature, userId, move1, move2, move3, move4, heldItem]
   );
 
   await pool.query(
@@ -82,10 +104,14 @@ async function execute(message, args, spawns) {
 
   const iv = totalIV(ivs);
   const shinyText = shiny ? "✨ ***SHINY*** ✨ " : "";
-  const pokeName = capitalize(pokemonInfo.name);
+  const pokeName = pokemonInfo.displayName || capitalize(pokemonInfo.name);
 
   let desc = `${message.author} caught a ${shinyText}**Level ${level} ${pokeName}**!\n\n` +
     `**IV:** ${iv}%\n**Nature:** ${nature}`;
+  if (pokemonInfo.isEventPokemon) {
+    desc += `\n🎨 **Held Item:** Hand-held Color Pouch auto-equipped!`;
+    desc += `\n✦ **Moves:** ${[move1,move2,move3,move4].filter(Boolean).join(" | ")}`;
+  }
   if (usingMasterBall) desc = `🟣 **Master Ball used!**\n\n` + desc;
   if (usedCharm) desc += `\n✨ *Shiny Charm active (${shinyCharm.rows[0].uses_left - 1} uses left)*`;
 

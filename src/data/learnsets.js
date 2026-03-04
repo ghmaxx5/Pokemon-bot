@@ -8,6 +8,15 @@ const POKEMON_SPECIFIC_MOVES = {
     { name: "Aerial Ace", power: 60, accuracy: 100, type: "flying", learnLevel: 80, neverMiss: true }
   ],
 
+  // ── Holi Spirit Greninja (Event) ─────────────────────────────
+  // Fixed moveset — always these 4 regardless of level
+  10658: [
+    { name: "Coloursplash",     power: 100, accuracy: 100, type: "fairy",  learnLevel: 1 },
+    { name: "Powder Bomb",      power: 90,  accuracy: 100, type: "water",  learnLevel: 1 },
+    { name: "Vibrant Wave",     power: 80,  accuracy: 90,  type: "fairy",  learnLevel: 1 },
+    { name: "Prismatic Shield", power: 10,  accuracy: 100, type: "water",  learnLevel: 1, isProtect: true }
+  ],
+
   // ══════════════════════════════════════════════════════════════
   //  DRAGON ASCENT  –  Flying / 120 power / 100 acc
   //  Rayquaza's signature. Learned by legendary/godly dragons.
@@ -185,6 +194,16 @@ function getCoverageTypes(types) {
 }
 
 function getAvailableMoves(types, level, pokemonId = null) {
+  // Event Pokémon with fixed movesets — skip type-generated learnset entirely
+  if (pokemonId && POKEMON_SPECIFIC_MOVES[pokemonId]) {
+    const specific = POKEMON_SPECIFIC_MOVES[pokemonId];
+    // If ALL moves are at learnLevel 1, treat as a fixed moveset (event mon)
+    const isFixedMoveset = specific.every(m => m.learnLevel <= 1);
+    if (isFixedMoveset) {
+      return specific.map(m => ({ ...m }));
+    }
+  }
+
   const learnset = generateLearnset(types);
 
   // Merge in Pokémon-specific moves — override learnLevel if already in learnset

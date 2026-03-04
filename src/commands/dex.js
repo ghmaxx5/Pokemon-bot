@@ -65,20 +65,35 @@ function formatEvoMethod(evo) {
 
 function buildMainEmbed(data, userId, caught) {
   const typeStr = data.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" / ");
-  const region = getRegion(data.id);
+  const region = data.region || getRegion(data.id);
+  const displayName = data.displayName || capitalize(data.name);
+
+  // Catchable status
+  let catchableStr;
+  if (data.isEventPokemon) {
+    catchableStr = `🎉 Event Only`;
+  } else if (data.isCatchable === false) {
+    catchableStr = "❌ Not Catchable";
+  } else {
+    catchableStr = "✅ Catchable";
+  }
 
   const embed = new EmbedBuilder()
-    .setTitle(`#${data.id} — ${capitalize(data.name)}`)
+    .setTitle(`#${data.id} — ${displayName}`)
     .setDescription(`${data.genus || "Pokémon"}\n**Type:** ${typeStr}\n**Region:** ${region}`)
     .addFields(
       { name: "Base Stats", value: `HP: ${data.baseStats.hp} | ATK: ${data.baseStats.atk} | DEF: ${data.baseStats.def}\nSpA: ${data.baseStats.spatk} | SpD: ${data.baseStats.spdef} | SPD: ${data.baseStats.spd}`, inline: false },
       { name: "Height", value: `${(data.height / 10).toFixed(1)}m`, inline: true },
       { name: "Weight", value: `${(data.weight / 10).toFixed(1)}kg`, inline: true },
-      { name: "Caught", value: caught ? "Yes ✅" : "No ❌", inline: true }
+      { name: "Caught", value: caught ? "Yes ✅" : "No ❌", inline: true },
+      { name: "Catchable", value: catchableStr, inline: true }
     )
     .setImage(getPokemonImage(data.id))
-    .setColor(0xe74c3c);
+    .setColor(data.isEventPokemon ? 0xf72585 : 0xe74c3c);
 
+  if (data.isEventPokemon) {
+    embed.addFields({ name: "🎊 Event", value: data.eventName || "Special Event", inline: true });
+  }
   if (data.isLegendary) embed.addFields({ name: "Rarity", value: "🌟 Legendary", inline: true });
   if (data.isMythical) embed.addFields({ name: "Rarity", value: "💫 Mythical", inline: true });
   if (data.description) embed.addFields({ name: "Description", value: data.description.substring(0, 1024), inline: false });
@@ -88,18 +103,25 @@ function buildMainEmbed(data, userId, caught) {
 
 function buildShinyEmbed(data, caught) {
   const typeStr = data.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" / ");
-  const region = getRegion(data.id);
+  const region = data.region || getRegion(data.id);
+  const displayName = data.displayName || capitalize(data.name);
+
+  let catchableStr;
+  if (data.isEventPokemon) catchableStr = "🎉 Event Only";
+  else if (data.isCatchable === false) catchableStr = "❌ Not Catchable";
+  else catchableStr = "✅ Catchable";
 
   const embed = new EmbedBuilder()
-    .setTitle(`#${data.id} — ✨ Shiny ${capitalize(data.name)}`)
+    .setTitle(`#${data.id} — ✨ Shiny ${displayName}`)
     .setDescription(`${data.genus || "Pokémon"}\n**Type:** ${typeStr}\n**Region:** ${region}`)
     .addFields(
       { name: "Base Stats", value: `HP: ${data.baseStats.hp} | ATK: ${data.baseStats.atk} | DEF: ${data.baseStats.def}\nSpA: ${data.baseStats.spatk} | SpD: ${data.baseStats.spdef} | SPD: ${data.baseStats.spd}`, inline: false },
       { name: "Shiny Rate", value: "1/4096 (1/2048 with Shiny Charm)", inline: true },
-      { name: "Caught", value: caught ? "Yes ✅" : "No ❌", inline: true }
+      { name: "Caught", value: caught ? "Yes ✅" : "No ❌", inline: true },
+      { name: "Catchable", value: catchableStr, inline: true }
     )
     .setImage(getPokemonImage(data.id, true))
-    .setColor(0xf1c40f)
+    .setColor(data.isEventPokemon ? 0xffd700 : 0xf1c40f)
     .setFooter({ text: "✨ Shiny Form" });
 
   return embed;

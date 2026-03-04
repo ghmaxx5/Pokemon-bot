@@ -29,9 +29,20 @@ function getPokemonByName(name) {
 
 function getRandomPokemon() {
   if (!pokemonData) loadPokemonData();
-  const ids = Array.from(pokemonData.keys());
+  // Exclude event-only pokemon from normal spawns
+  const ids = Array.from(pokemonData.keys()).filter(id => {
+    const p = pokemonData.get(id);
+    return !p.isEventPokemon;
+  });
   const id = ids[Math.floor(Math.random() * ids.length)];
   return pokemonData.get(id);
+}
+
+function getRandomEventPokemon() {
+  if (!pokemonData) loadPokemonData();
+  const eventPokemon = Array.from(pokemonData.values()).filter(p => p.isEventPokemon && p.isCatchable !== false);
+  if (eventPokemon.length === 0) return null;
+  return eventPokemon[Math.floor(Math.random() * eventPokemon.length)];
 }
 
 function searchPokemon(query) {
@@ -49,13 +60,16 @@ function getAllPokemon() {
 }
 
 function getPokemonImage(id, shiny = false) {
+  // Event pokemon use their base form's image from PokeAPI
+  const p = pokemonData ? pokemonData.get(id) : null;
+  const imageId = (p && p.baseForm) ? p.baseForm : id;
   if (shiny) {
-    return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/${id}.png`;
+    return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/shiny/${imageId}.png`;
   }
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${id}.png`;
+  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${imageId}.png`;
 }
 
 module.exports = {
   loadPokemonData, getPokemonById, getPokemonByName,
-  getRandomPokemon, searchPokemon, getAllPokemon, getPokemonImage
+  getRandomPokemon, getRandomEventPokemon, searchPokemon, getAllPokemon, getPokemonImage
 };

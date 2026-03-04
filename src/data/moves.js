@@ -134,6 +134,15 @@ const MOVES = {
     { name: "Moonblast", power: 95, accuracy: 100 },
     { name: "Play Rough", power: 90, accuracy: 90 },
     { name: "Draining Kiss", power: 50, accuracy: 100 }
+  ],
+
+  // ── Event / Signature move pool ──────────────────────────────
+  // These only appear via POKEMON_SPECIFIC_MOVES overrides
+  event: [
+    { name: "Coloursplash",    power: 100, accuracy: 100 },
+    { name: "Powder Bomb",     power: 90,  accuracy: 100 },
+    { name: "Vibrant Wave",    power: 80,  accuracy: 90  },
+    { name: "Prismatic Shield", power: 10,  accuracy: 100, isProtect: true }
   ]
 };
 
