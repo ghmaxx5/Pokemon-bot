@@ -122,6 +122,12 @@ async function initDatabase() {
       ALTER TABLE pokemon ADD COLUMN IF NOT EXISTS move3 TEXT DEFAULT NULL;
       ALTER TABLE pokemon ADD COLUMN IF NOT EXISTS move4 TEXT DEFAULT NULL;
 
+      CREATE TABLE IF NOT EXISTS spawn_channels (
+        guild_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        PRIMARY KEY (guild_id, channel_id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_pokemon_user_id ON pokemon(user_id);
       CREATE INDEX IF NOT EXISTS idx_pokemon_pokemon_id ON pokemon(pokemon_id);
       CREATE INDEX IF NOT EXISTS idx_market_listings_price ON market_listings(price);

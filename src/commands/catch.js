@@ -85,9 +85,10 @@ async function execute(message, args, spawns) {
     }
   }
 
-  const ivs = generateIVs();
+  const ivs = spawn.ivs || generateIVs();
   const nature = randomNature();
-  const shiny = Math.random() < shinyRate;
+  // forceShiny from admin spawnwild overrides normal shiny roll
+  const shiny = spawn.forceShiny ? true : Math.random() < shinyRate;
   // Event Pokemon are always caught at level 100
   const level = pokemonInfo.isEventPokemon ? 100 : Math.floor(Math.random() * 30) + 1;
 

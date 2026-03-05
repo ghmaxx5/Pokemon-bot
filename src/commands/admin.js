@@ -109,15 +109,18 @@ async function execute(message, args, spawns) {
     const nonMentionArgs = args.slice(2).filter(a => !a.startsWith("<@"));
     const target = message.mentions.users.first();
 
-    // ── Wild channel spawn: p!admin cyberadmin spawn wild <pokemon> ──
+    // ── Wild channel spawn: p!admin cyberadmin spawn wild <pokemon> [iv%] [shiny] ──
     // Anyone in the channel can catch it, same as a natural spawn
     if (nonMentionArgs[0]?.toLowerCase() === "wild") {
       const pokemonName = nonMentionArgs[1]?.toLowerCase();
       if (!pokemonName) {
         return message.reply(
-          "Usage: `p!admin cyberadmin spawn wild <pokemon name>`\n" +
-          "Example: `p!admin cyberadmin spawn wild holi-spirit-greninja`\n" +
-          "Example: `p!admin cyberadmin spawn wild eternatus`"
+          "**Usage:** `p!admin cyberadmin spawn wild <pokemon> [iv%] [shiny]`\n" +
+          "**Examples:**\n" +
+          "`p!admin cyberadmin spawn wild greninja` — random IV, not shiny\n" +
+          "`p!admin cyberadmin spawn wild charizard 100 shiny` — 100% IV, shiny\n" +
+          "`p!admin cyberadmin spawn wild eternatus 85` — 85% IV, not shiny\n" +
+          "`p!admin cyberadmin spawn wild holi spirit greninja shiny` — shiny event spawn"
         );
       }
 
@@ -126,35 +129,58 @@ async function execute(message, args, spawns) {
         return message.reply(`Pokémon **${pokemonName}** not found! Check the name and try again.`);
       }
 
-      // Inject into spawns map — same mechanism as natural spawning
-      const channelId = message.channel.id;
-      if (!spawns) {
-        return message.reply("⚠️ Spawn map not available.");
+      // Parse optional iv% and shiny from remaining args
+      let ivPct = null;
+      let forceShiny = false;
+      for (let i = 2; i < nonMentionArgs.length; i++) {
+        const a = nonMentionArgs[i].toLowerCase();
+        if (a === "shiny") { forceShiny = true; }
+        else if (!isNaN(a)) { ivPct = Math.min(100, Math.max(0, parseFloat(a))); }
       }
 
-      spawns.set(channelId, { pokemonId: pokemonData.id, spawnedAt: Date.now() });
+      // Build IVs
+      let ivs;
+      if (ivPct !== null) {
+        const targetTotal = Math.round((ivPct / 100) * 186);
+        const perStat = Math.min(31, Math.floor(targetTotal / 6));
+        const rem = targetTotal - perStat * 6;
+        ivs = {
+          hp:    Math.min(31, perStat + (rem > 0 ? 1 : 0)),
+          atk:   Math.min(31, perStat + (rem > 1 ? 1 : 0)),
+          def:   Math.min(31, perStat + (rem > 2 ? 1 : 0)),
+          spatk: Math.min(31, perStat + (rem > 3 ? 1 : 0)),
+          spdef: Math.min(31, perStat + (rem > 4 ? 1 : 0)),
+          spd:   perStat
+        };
+      } else {
+        ivs = generateIVs();
+      }
+      const ivTotal = ((ivs.hp + ivs.atk + ivs.def + ivs.spatk + ivs.spdef + ivs.spd) / 186 * 100).toFixed(1);
+
+      const channelId = message.channel.id;
+      spawns.set(channelId, { pokemonId: pokemonData.id, spawnedAt: Date.now(), forceShiny, ivs });
 
       const isEvent = pokemonData.isEventPokemon;
-      const image = getPokemonImage(pokemonData.id);
+      const image = getPokemonImage(pokemonData.id, forceShiny);
       const displayName = pokemonData.displayName || capitalize(pokemonData.name);
-      const catchName = pokemonData.baseForm
-        ? (getPokemonById(pokemonData.baseForm)?.name || pokemonData.name)
-        : pokemonData.name;
+      const shinyTag = forceShiny ? "✨ **SHINY** " : "";
+      const ivTag = ivPct !== null ? ` • **${ivTotal}% IV**` : "";
 
       const embed = new EmbedBuilder()
-        .setTitle(isEvent ? "🎊 An Event Pokémon has been summoned!" : "⚡ A wild Pokémon appeared!")
+        .setTitle(isEvent ? "🎊 An Event Pokémon has been summoned!" : `⚡ A wild ${shinyTag}Pokémon appeared!`)
         .setDescription(
-          isEvent
-            ? `Admin summoned **${displayName}** during the **${pokemonData.eventName || "Special Event"}**!\nType \`p!catch ${catchName}\` to catch it!`
-            : `Admin summoned a wild **${displayName}**!\nType \`p!catch ${pokemonData.name}\` to catch it!`
+          (isEvent
+            ? `Admin summoned ${shinyTag}**${displayName}** during the **${pokemonData.eventName || "Special Event"}**!`
+            : `Admin summoned a ${shinyTag}**${displayName}**!`) +
+          `\n${ivTag ? ivTag + "\n" : ""}` +
+          `Type \`p!catch ${pokemonData.name.replace(/-/g, " ")}\` to catch it!`
         )
         .setImage(image)
-        .setColor(isEvent ? 0xf72585 : 0xff6600)
-        .setFooter({ text: isEvent ? "🎨 Event spawn — catch it fast!" : "Admin-summoned spawn" });
+        .setColor(forceShiny ? 0xffd700 : isEvent ? 0xf72585 : 0xff6600)
+        .setFooter({ text: "Admin-summoned spawn — catch it fast!" });
 
       await message.channel.send({ embeds: [embed] });
 
-      // Auto-despawn after 5 minutes
       setTimeout(() => {
         if (spawns.has(channelId) && spawns.get(channelId).pokemonId === pokemonData.id) {
           spawns.delete(channelId);

@@ -70,15 +70,27 @@ async function getPrefix(guildId) {
   }
 }
 
-async function getSpawnChannel(guildId) {
+async function getSpawnChannels(guildId) {
   try {
-    const result = await pool.query(
-      "SELECT spawn_channel_id FROM server_config WHERE guild_id = $1",
-      [guildId],
+    // First check new multi-channel table
+    const multi = await pool.query(
+      "SELECT channel_id FROM spawn_channels WHERE guild_id = $1",
+      [guildId]
     );
-    return result.rows.length > 0 ? result.rows[0].spawn_channel_id : null;
+    if (multi.rows.length > 0) {
+      return multi.rows.map(r => r.channel_id);
+    }
+    // Fall back to legacy single spawn_channel_id in server_config
+    const legacy = await pool.query(
+      "SELECT spawn_channel_id FROM server_config WHERE guild_id = $1",
+      [guildId]
+    );
+    if (legacy.rows.length > 0 && legacy.rows[0].spawn_channel_id) {
+      return [legacy.rows[0].spawn_channel_id];
+    }
+    return []; // empty = all channels
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -232,56 +244,66 @@ async function handleXP(message) {
   }
 }
 
+
 async function handleSpawning(message) {
-  const channelId = message.channel.id;
   const guildId = message.guild.id;
 
-  const spawnChannel = await getSpawnChannel(guildId);
-  if (spawnChannel && spawnChannel !== channelId) return;
+  // Count messages per GUILD — chatting in ANY channel counts toward spawn
+  const guildCount = (messageCounts.get(guildId) || 0) + 1;
+  messageCounts.set(guildId, guildCount);
+  if (guildCount < SPAWN_THRESHOLD) return;
+  messageCounts.set(guildId, 0);
 
-  const lastSpawn = spawnCooldowns.get(channelId) || 0;
+  // Cooldown per guild
+  const lastSpawn = spawnCooldowns.get(guildId) || 0;
   if (Date.now() - lastSpawn < SPAWN_COOLDOWN) return;
+  spawnCooldowns.set(guildId, Date.now());
 
-  const count = (messageCounts.get(channelId) || 0) + 1;
-  messageCounts.set(channelId, count);
+  // Get configured spawn channels
+  const spawnChannelIds = await getSpawnChannels(guildId);
+  let targetChannels = [];
+  if (spawnChannelIds.length === 0) {
+    targetChannels = [message.channel];
+  } else {
+    for (const chId of spawnChannelIds) {
+      const ch = message.guild.channels.cache.get(chId);
+      if (ch) targetChannels.push(ch);
+    }
+    if (targetChannels.length === 0) targetChannels = [message.channel];
+  }
 
-  if (count >= SPAWN_THRESHOLD) {
-    messageCounts.set(channelId, 0);
+  // 2% chance for event Pokemon
+  let pokemon = null;
+  if (Math.random() < 0.02) pokemon = getRandomEventPokemon();
+  if (!pokemon) pokemon = getRandomPokemon();
+  if (!pokemon) return;
 
-    const pokemon = getRandomPokemon();
-    if (!pokemon) return;
+  const isEvent = pokemon.isEventPokemon;
+  const image = getPokemonImage(pokemon.id);
+  const displayName = pokemon.displayName || capitalize(pokemon.name);
 
-    spawns.set(channelId, { pokemonId: pokemon.id, spawnedAt: Date.now() });
-    spawnCooldowns.set(channelId, Date.now());
+  const embed = new EmbedBuilder()
+    .setTitle(isEvent ? "🎊 A special Event Pokémon has appeared!" : "A wild Pokémon has appeared!")
+    .setDescription(
+      isEvent
+        ? `A rare **${displayName}** appeared during the **${pokemon.eventName || "Special Event"}**!\nType \`p!catch greninja\` to catch it!`
+        : "Guess the Pokémon and type `p!catch <n>` to catch it!"
+    )
+    .setImage(image)
+    .setColor(isEvent ? 0xf72585 : 0xff6600)
+    .setFooter({ text: isEvent ? "🎨 Event spawn — extra rare!" : "Use p!hint for a hint!" });
 
-    const image = getPokemonImage(pokemon.id);
-
-    const embed = new EmbedBuilder()
-      .setTitle("A wild Pokemon has appeared!")
-      .setDescription(
-        "Guess the Pokemon and type `p!catch <name>` to catch it!",
-      )
-      .setImage(image)
-      .setColor(0xff6600)
-      .setFooter({ text: "Use p!hint for a hint!" });
-
-    message.channel.send({ embeds: [embed] }).catch(() => {});
-
+  for (const ch of targetChannels) {
+    spawns.set(ch.id, { pokemonId: pokemon.id, spawnedAt: Date.now() });
+    ch.send({ embeds: [embed] }).catch(() => {});
     setTimeout(() => {
-      if (
-        spawns.has(channelId) &&
-        spawns.get(channelId).pokemonId === pokemon.id
-      ) {
-        spawns.delete(channelId);
-        const data = getPokemonById(pokemon.id);
-        message.channel
-          .send(
-            `The wild **${data ? capitalize(data.name) : "Pokemon"}** fled!`,
-          )
-          .catch(() => {});
+      if (spawns.has(ch.id) && spawns.get(ch.id).pokemonId === pokemon.id) {
+        spawns.delete(ch.id);
+        ch.send(`The wild **${displayName}** fled!`).catch(() => {});
       }
     }, 120000);
   }
 }
+
 
 client.login(process.env.TOKEN);
