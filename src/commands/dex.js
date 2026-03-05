@@ -166,7 +166,7 @@ function buildGmaxEmbed(data, gmaxData) {
     .map(m => `${getTypeEmoji(m.type)} **${m.name}** — Power: ${m.power || "—"} | Acc: ${m.accuracy}%`)
     .join("\n");
 
-  const gmaxImage = `https://img.pokemondb.net/artwork/large/${getFormName(data.name)}-gigantamax.jpg`;
+  const gmaxImage = gmaxData.gmaxImageUrl || `https://img.pokemondb.net/artwork/large/${getFormName(data.name)}-gigantamax.jpg`;
 
   const embed = new EmbedBuilder()
     .setTitle(`#${data.id} — ${gmaxData.name}`)

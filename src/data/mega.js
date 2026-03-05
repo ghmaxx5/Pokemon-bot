@@ -344,11 +344,12 @@ const GMAX_POKEMON = {
   // ── Eternamax Eternatus ──────────────────────────────────────
   890: {
     name: "Eternamax Eternatus",
+    gmaxImageUrl: "https://img.pokemondb.net/artwork/large/eternatus-eternamax.jpg",
     gmaxMoves: [
-      { name: "Eternabeam",      power: 160, accuracy: 90,  type: "dragon" },
+      { name: "Eternabeam",       power: 160, accuracy: 90,  type: "dragon" },
       { name: "G-Max Centiferno", power: 150, accuracy: 95,  type: "fire"   },
-      { name: "Max Ooze",        power: 130, accuracy: 100, type: "poison"  },
-      { name: "Max Guard",       power: 0,   accuracy: 100, type: "normal", isProtect: true }
+      { name: "Max Ooze",         power: 130, accuracy: 100, type: "poison" },
+      { name: "Max Guard",        power: 0,   accuracy: 100, type: "normal", isProtect: true }
     ]
   }
 };

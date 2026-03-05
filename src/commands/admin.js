@@ -16,7 +16,13 @@ async function execute(message, args, spawns) {
     return;
   }
 
-  const subcommand = args[1]?.toLowerCase();
+  let subcommand = args[1]?.toLowerCase();
+
+  // spawnwild <pokemon> is shorthand for spawn wild <pokemon>
+  if (subcommand === "spawnwild") {
+    subcommand = "spawn";
+    args.splice(2, 0, "wild"); // insert "wild" before the pokemon name
+  }
 
   if (subcommand === "addcoins") {
     const target = message.mentions.users.first();

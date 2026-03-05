@@ -48,6 +48,8 @@ function hpBar(current, max) {
 function getPokeImage(poke) {
   const id = poke.pokemon_id;
   if (poke.gmaxed) {
+    // Use custom gmaxImageUrl if defined on gmax data (e.g. Eternamax)
+    if (poke.gmaxData?.gmaxImageUrl) return poke.gmaxData.gmaxImageUrl;
     return `https://img.pokemondb.net/artwork/large/${getFormName(poke.data.name)}-gigantamax.jpg`;
   }
   if (poke.megaEvolved) {
