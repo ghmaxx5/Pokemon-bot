@@ -12,7 +12,20 @@ function loadPokemonData() {
   pokemonByName = new Map();
   for (const p of list) {
     pokemonData.set(p.id, p);
-    pokemonByName.set(p.name.toLowerCase(), p);
+    const nameLower = p.name.toLowerCase();
+    // Index canonical name (dashes)
+    pokemonByName.set(nameLower, p);
+    // Index with spaces instead of dashes
+    pokemonByName.set(nameLower.replace(/-/g, " "), p);
+    // Index displayName variants if present
+    if (p.displayName) {
+      const dl = p.displayName.toLowerCase();
+      pokemonByName.set(dl, p);
+      pokemonByName.set(dl.replace(/-/g, " "), p);
+      // Strip parentheses: "holi spirit greninja" from "holi spirit (greninja)"
+      const stripped = dl.replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+      pokemonByName.set(stripped, p);
+    }
   }
   return pokemonData;
 }
@@ -24,7 +37,12 @@ function getPokemonById(id) {
 
 function getPokemonByName(name) {
   if (!pokemonByName) loadPokemonData();
-  return pokemonByName.get(name.toLowerCase());
+  const n = name.toLowerCase().trim();
+  // Try direct, then space→dash, then dash→space
+  return pokemonByName.get(n)
+    || pokemonByName.get(n.replace(/\s+/g, "-"))
+    || pokemonByName.get(n.replace(/-/g, " "))
+    || undefined;
 }
 
 function getRandomPokemon() {
@@ -47,9 +65,14 @@ function getRandomEventPokemon() {
 
 function searchPokemon(query) {
   if (!pokemonByName) loadPokemonData();
+  const q = query.toLowerCase();
+  const seen = new Set();
   const results = [];
   for (const [name, data] of pokemonByName) {
-    if (name.includes(query.toLowerCase())) results.push(data);
+    if (name.includes(q) && !seen.has(data.id)) {
+      seen.add(data.id);
+      results.push(data);
+    }
   }
   return results;
 }

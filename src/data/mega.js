@@ -344,7 +344,7 @@ const GMAX_POKEMON = {
   // ── Eternamax Eternatus ──────────────────────────────────────
   890: {
     name: "Eternamax Eternatus",
-    gmaxImageUrl: "https://img.pokemondb.net/artwork/large/eternatus-eternamax.jpg",
+    gmaxImageUrl: "https://raw.githubusercontent.com/ghmaxx5/Pokemon-bot/main/assets/event/eternatus-eternamax.png",
     gmaxMoves: [
       { name: "Eternabeam",       power: 160, accuracy: 90,  type: "dragon" },
       { name: "G-Max Centiferno", power: 150, accuracy: 95,  type: "fire"   },

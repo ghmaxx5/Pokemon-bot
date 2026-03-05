@@ -28,13 +28,26 @@ async function execute(message, args, spawns) {
   const pokemonInfo = getPokemonById(spawn.pokemonId);
   if (!pokemonInfo) return;
 
-  // For event Pokemon, accept the base form name OR the full event name
-  const acceptedNames = [pokemonInfo.name.toLowerCase()];
+  // Build accepted name variants — spaces, dashes, displayName all accepted
+  const addVariants = (set, name) => {
+    const n = name.toLowerCase();
+    set.add(n);
+    set.add(n.replace(/-/g, " "));
+    set.add(n.replace(/\s+/g, "-"));
+  };
+  const acceptedSet = new Set();
+  addVariants(acceptedSet, pokemonInfo.name);
   if (pokemonInfo.baseForm) {
     const baseData = getPokemonById(pokemonInfo.baseForm);
-    if (baseData) acceptedNames.push(baseData.name.toLowerCase());
+    if (baseData) addVariants(acceptedSet, baseData.name);
   }
-  if (pokemonInfo.displayName) acceptedNames.push(pokemonInfo.displayName.toLowerCase());
+  if (pokemonInfo.displayName) {
+    addVariants(acceptedSet, pokemonInfo.displayName);
+    // Also strip parentheses: "holi spirit greninja" from "holi spirit (greninja)"
+    const stripped = pokemonInfo.displayName.toLowerCase().replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+    addVariants(acceptedSet, stripped);
+  }
+  const acceptedNames = Array.from(acceptedSet);
 
   const masterBall = await pool.query(
     "SELECT quantity FROM user_inventory WHERE user_id = $1 AND item_id = 'master_ball' AND quantity > 0",
