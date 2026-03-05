@@ -294,12 +294,33 @@ async function handleSpawning(message) {
     .setFooter({ text: isEvent ? "🎨 Event spawn — extra rare!" : "Use p!hint for a hint!" });
 
   for (const ch of targetChannels) {
-    spawns.set(ch.id, { pokemonId: pokemon.id, spawnedAt: Date.now() });
-    ch.send({ embeds: [embed] }).catch(() => {});
+    // Each channel gets its OWN random pokemon
+    let chPokemon = null;
+    if (Math.random() < 0.02) chPokemon = getRandomEventPokemon();
+    if (!chPokemon) chPokemon = getRandomPokemon();
+    if (!chPokemon) continue;
+
+    const chIsEvent = chPokemon.isEventPokemon;
+    const chImage = getPokemonImage(chPokemon.id); // always normal image in wild spawn
+    const chDisplayName = chPokemon.displayName || capitalize(chPokemon.name);
+
+    const chEmbed = new EmbedBuilder()
+      .setTitle(chIsEvent ? "🎊 A special Event Pokemon has appeared!" : "A wild Pokemon has appeared!")
+      .setDescription(
+        chIsEvent
+          ? `A rare **${chDisplayName}** appeared during the **${chPokemon.eventName || "Special Event"}**!\nType \`p!catch ${chPokemon.name.replace(/-/g, " ")}\` to catch it!`
+          : "Guess the Pokemon and type `p!catch <n>` to catch it!"
+      )
+      .setImage(chImage)
+      .setColor(chIsEvent ? 0xf72585 : 0xff6600)
+      .setFooter({ text: chIsEvent ? "🎨 Event spawn — extra rare!" : "Use p!hint for a hint!" });
+
+    spawns.set(ch.id, { pokemonId: chPokemon.id, spawnedAt: Date.now() });
+    ch.send({ embeds: [chEmbed] }).catch(() => {});
     setTimeout(() => {
-      if (spawns.has(ch.id) && spawns.get(ch.id).pokemonId === pokemon.id) {
+      if (spawns.has(ch.id) && spawns.get(ch.id).pokemonId === chPokemon.id) {
         spawns.delete(ch.id);
-        ch.send(`The wild **${displayName}** fled!`).catch(() => {});
+        ch.send(`The wild **${chDisplayName}** fled!`).catch(() => {});
       }
     }, 120000);
   }

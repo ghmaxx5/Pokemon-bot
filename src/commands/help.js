@@ -1,93 +1,221 @@
-const { EmbedBuilder } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 
-const COMMAND_CATEGORIES = {
-  "Getting Started": [
-    { name: "start", desc: "Begin your Pokemon journey and pick a starter" },
-    { name: "help", desc: "Show this help message" },
-    { name: "daily", desc: "Claim your daily Cybercoins reward" },
-    { name: "profile / prof", desc: "View your profile" }
-  ],
-  "Pokemon": [
-    { name: "catch / c", desc: "Catch a wild Pokemon" },
-    { name: "hint / h", desc: "Get a hint about the wild Pokemon" },
-    { name: "pokemon / p", desc: "View your Pokemon collection" },
-    { name: "info / i", desc: "View detailed info about a Pokemon" },
-    { name: "select / s", desc: "Select your active Pokemon" },
-    { name: "favorite / fav", desc: "Toggle favorite on a Pokemon" },
-    { name: "nickname / nn", desc: "Set a nickname for a Pokemon" },
-    { name: "release", desc: "Release a Pokemon (permanent)" },
-    { name: "evolve", desc: "Evolve your Pokemon" },
-    { name: "dex <name>", desc: "View Pokédex entry (with form buttons)" }
-  ],
-  "Economy": [
-    { name: "balance / bal", desc: "Check your Cybercoin balance" },
-    { name: "give / pay", desc: "Give Cybercoins to another user" },
-    { name: "daily", desc: "Claim daily reward" }
-  ],
-  "Market": [
-    { name: "market", desc: "Browse market listings" },
-    { name: "market list", desc: "List a Pokemon for sale" },
-    { name: "market buy", desc: "Buy a listed Pokemon" },
-    { name: "market remove", desc: "Remove your listing" },
-    { name: "market search", desc: "Search listings by name" }
-  ],
-  "Trading": [
-    { name: "trade @user", desc: "Start a trade" },
-    { name: "trade add", desc: "Add Pokemon to trade" },
-    { name: "trade confirm", desc: "Confirm the trade" },
-    { name: "trade cancel", desc: "Cancel the trade" }
-  ],
-  "Battling": [
-    { name: "battle @user", desc: "Challenge to a 3v3 battle" },
-    { name: "battle ai", desc: "Fight an AI trainer (3v3)" },
-    { name: "moves / ms", desc: "View & equip moves for your Pokemon" },
-    { name: "moves set <slot> <move>", desc: "Equip a move to a slot (1-4)" },
-    { name: "moveinfo / mi <move>", desc: "View detailed move info" }
-  ],
-  "Shop": [
-    { name: "shop", desc: "Browse available items" },
-    { name: "shop buy", desc: "Buy an item" },
-    { name: "shop use", desc: "Use an item on a Pokemon" },
-    { name: "shop hold <item> <#>", desc: "Give item to Pokemon (use list number)" },
-    { name: "shop unhold <#>", desc: "Remove held item from Pokemon" },
-    { name: "inv / inventory / bag", desc: "View your backpack & held items" }
-  ],
-  "Server Settings": [
-    { name: "server", desc: "View server configuration" },
-    { name: "server prefix", desc: "Change command prefix" },
-    { name: "server channel", desc: "Set spawn channel" }
-  ]
-};
-
-async function execute(message, args) {
-  if (args.length > 0) {
-    const cmdName = args[0].toLowerCase();
-    for (const [cat, cmds] of Object.entries(COMMAND_CATEGORIES)) {
-      const found = cmds.find(c => c.name.toLowerCase().includes(cmdName));
-      if (found) {
-        const embed = new EmbedBuilder()
-          .setTitle(`Command: ${found.name}`)
-          .setDescription(found.desc)
-          .setColor(0x3498db);
-        return message.channel.send({ embeds: [embed] });
+const PAGES = [
+  {
+    label: "🌟 Getting Started",
+    color: 0x9b59b6,
+    fields: [
+      {
+        name: "━━━ 🚀 Begin Your Journey ━━━",
+        value:
+          "`p!start` — Start your Pokémon adventure & pick a starter\n" +
+          "`p!daily` — Claim daily Cybercoin reward\n" +
+          "`p!profile` — View your trainer profile\n" +
+          "`p!ping` — Check bot latency & status\n" +
+          "`p!help` — Show this help menu"
+      },
+      {
+        name: "━━━ 💡 How Spawning Works ━━━",
+        value:
+          "Pokémon appear as members chat — **any channel** counts!\n" +
+          "They spawn in your configured spawn channel(s).\n" +
+          "Type `p!catch <name>` to catch the Pokémon.\n" +
+          "Use `p!hint` if you're unsure of the name.\n" +
+          "✨ Shiny is revealed only after catching — stay sharp!"
       }
-    }
-    return message.reply("Command not found.");
+    ]
+  },
+  {
+    label: "🎮 Pokémon",
+    color: 0xe74c3c,
+    fields: [
+      {
+        name: "━━━ 📦 Collection ━━━",
+        value:
+          "`p!catch <name>` — Catch a wild Pokémon\n" +
+          "`p!hint` — Get a hint for the current wild Pokémon\n" +
+          "`p!pokemon` — View your Pokémon collection\n" +
+          "`p!info <#>` — Detailed info about a Pokémon\n" +
+          "`p!select <#>` — Set active Pokémon\n" +
+          "`p!favorite <#>` — Toggle favorite\n" +
+          "`p!nickname <#> <name>` — Give a nickname\n" +
+          "`p!release <#>` — Release a Pokémon ⚠️"
+      },
+      {
+        name: "━━━ 🔍 Filters for p!pokemon ━━━",
+        value:
+          "`--shiny` `--fav` `--legendary` `--mythical`\n" +
+          "`--type <type>` — filter by type\n" +
+          "`--name <n>` — filter by name\n" +
+          "`--iv` — sort by IV%\n" +
+          "`--level` — sort by level"
+      },
+      {
+        name: "━━━ 🧬 Evolution & Pokédex ━━━",
+        value:
+          "`p!evolve` — Evolve your active Pokémon\n" +
+          "`p!dex <name/id>` — Pokédex entry (Normal/Shiny/Mega/G-Max tabs)"
+      }
+    ]
+  },
+  {
+    label: "⚔️ Battling",
+    color: 0xe67e22,
+    fields: [
+      {
+        name: "━━━ 🥊 Battle Commands ━━━",
+        value:
+          "`p!battle @user` — Challenge a trainer to 3v3 battle\n" +
+          "`p!battle ai` — Fight an AI trainer (3v3)\n" +
+          "`p!moves <#>` — View & equip moves for a Pokémon\n" +
+          "`p!moves set <slot> <move>` — Equip move to slot 1-4\n" +
+          "`p!moveinfo <move>` — Detailed move info"
+      },
+      {
+        name: "━━━ ✨ Special Forms in Battle ━━━",
+        value:
+          "**Mega Evolution** — Hold a Mega Stone, press Mega button\n" +
+          "**Gigantamax** — Hold a G-Max Ring, press G-Max button\n" +
+          "**Primal Reversion** — Hold Primal Orb (Kyogre/Groudon)\n" +
+          "Forms revert after the battle ends"
+      }
+    ]
+  },
+  {
+    label: "💰 Economy & Shop",
+    color: 0xf1c40f,
+    fields: [
+      {
+        name: "━━━ 💵 Economy ━━━",
+        value:
+          "`p!balance` — Check Cybercoin balance\n" +
+          "`p!give @user <amount>` — Send Cybercoins to a user\n" +
+          "`p!daily` — Claim daily reward"
+      },
+      {
+        name: "━━━ 🛒 Shop ━━━",
+        value:
+          "`p!shop` — Browse all available items\n" +
+          "`p!shop buy <item>` — Purchase an item\n" +
+          "`p!shop use <item> <#>` — Use item on a Pokémon\n" +
+          "`p!shop hold <item> <#>` — Give item to Pokémon to hold\n" +
+          "`p!shop unhold <#>` — Remove held item\n" +
+          "`p!inventory` — View your backpack & held items"
+      }
+    ]
+  },
+  {
+    label: "🏪 Market & Trading",
+    color: 0x2ecc71,
+    fields: [
+      {
+        name: "━━━ 🏬 Market ━━━",
+        value:
+          "`p!market` — Browse all listings\n" +
+          "`p!market list <#> <price>` — List Pokémon for sale\n" +
+          "`p!market buy <listing id>` — Buy a listed Pokémon\n" +
+          "`p!market remove <listing id>` — Remove your listing\n" +
+          "`p!market search <name>` — Search by Pokémon name"
+      },
+      {
+        name: "━━━ 🤝 Trading ━━━",
+        value:
+          "`p!trade @user` — Initiate a trade\n" +
+          "`p!trade add <#>` — Add Pokémon to the trade\n" +
+          "`p!trade confirm` — Confirm the trade\n" +
+          "`p!trade cancel` — Cancel the trade"
+      }
+    ]
+  },
+  {
+    label: "⚙️ Server & Admin",
+    color: 0x3498db,
+    fields: [
+      {
+        name: "━━━ 🖥️ Server Config (Requires Manage Server) ━━━",
+        value:
+          "`p!server` — View current server settings\n" +
+          "`p!server prefix <prefix>` — Change command prefix\n" +
+          "`p!server spawn add #channel` — Add a spawn channel\n" +
+          "`p!server spawn remove #channel` — Remove a spawn channel\n" +
+          "`p!server spawn list` — List all spawn channels\n" +
+          "`p!server spawn reset` — Spawn in all channels"
+      },
+      {
+        name: "━━━ 🔐 Admin Commands (Requires Admin + Secret) ━━━",
+        value:
+          "`p!admin <secret> spawn wild <pokemon> [iv%] [shiny]`\n" +
+          "↳ Spawns a Pokémon in channel — anyone can catch\n" +
+          "↳ Example: `spawn wild charizard 100 shiny`\n\n" +
+          "`p!admin <secret> spawn @user <pokemon> [iv%] [level] [shiny]`\n" +
+          "↳ Gives Pokémon directly to a user\n\n" +
+          "`p!admin <secret> addcoins @user <amount>`\n" +
+          "`p!admin <secret> setcoins @user <amount>`\n" +
+          "`p!admin <secret> addall <amount>` — Give coins to everyone"
+      }
+    ]
   }
+];
 
+function buildEmbed(page, pageIndex) {
   const embed = new EmbedBuilder()
-    .setTitle("Pokemon Bot - Commands")
-    .setDescription("Use `p!<command>` to run a command. Use `p!help <command>` for more info.\n\n**Pokemon Filter Flags:**\n`p!pokemon --shiny` `--fav` `--legendary` `--mythical`\n`--type <type>` `--name <name>` `--iv` `--level`")
-    .setColor(0xe74c3c);
+    .setTitle(`📖 CyberDex Help  •  ${page.label}`)
+    .setColor(page.color)
+    .setFooter({ text: `Page ${pageIndex + 1} of ${PAGES.length}  •  Use the buttons to navigate` });
 
-  for (const [category, commands] of Object.entries(COMMAND_CATEGORIES)) {
-    const cmdList = commands.map(c => `\`${c.name}\` — ${c.desc}`).join("\n");
-    embed.addFields({ name: category, value: cmdList, inline: false });
+  for (const field of page.fields) {
+    embed.addFields({ name: field.name, value: field.value, inline: false });
   }
-
-  embed.setFooter({ text: "Pokemon spawn randomly as you chat! Catch them all!" });
-
-  message.channel.send({ embeds: [embed] });
+  return embed;
 }
 
-module.exports = { name: "help", aliases: ["commands"], description: "Show all commands", execute };
+function buildRow(currentIndex) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("help_prev")
+      .setLabel("◀ Previous")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentIndex === 0),
+    new ButtonBuilder()
+      .setCustomId("help_page")
+      .setLabel(`${currentIndex + 1} / ${PAGES.length}`)
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(true),
+    new ButtonBuilder()
+      .setCustomId("help_next")
+      .setLabel("Next ▶")
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(currentIndex === PAGES.length - 1)
+  );
+}
+
+async function execute(message) {
+  let currentIndex = 0;
+
+  const msg = await message.channel.send({
+    embeds: [buildEmbed(PAGES[0], 0)],
+    components: [buildRow(0)]
+  });
+
+  const collector = msg.createMessageComponentCollector({
+    filter: i => i.user.id === message.author.id,
+    time: 120000
+  });
+
+  collector.on("collect", async i => {
+    if (i.customId === "help_prev" && currentIndex > 0) currentIndex--;
+    else if (i.customId === "help_next" && currentIndex < PAGES.length - 1) currentIndex++;
+    await i.update({ embeds: [buildEmbed(PAGES[currentIndex], currentIndex)], components: [buildRow(currentIndex)] });
+  });
+
+  collector.on("end", async () => {
+    const disabledRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("hp").setLabel("◀ Previous").setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId("hc").setLabel(`${currentIndex + 1} / ${PAGES.length}`).setStyle(ButtonStyle.Primary).setDisabled(true),
+      new ButtonBuilder().setCustomId("hn").setLabel("Next ▶").setStyle(ButtonStyle.Secondary).setDisabled(true)
+    );
+    msg.edit({ components: [disabledRow] }).catch(() => {});
+  });
+}
+
+module.exports = { name: "help", aliases: ["commands", "h"], description: "Show all commands", execute };

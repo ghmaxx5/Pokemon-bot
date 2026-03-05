@@ -112,8 +112,8 @@ async function execute(message, args, spawns) {
     // ── Wild channel spawn: p!admin cyberadmin spawn wild <pokemon> [iv%] [shiny] ──
     // Anyone in the channel can catch it, same as a natural spawn
     if (nonMentionArgs[0]?.toLowerCase() === "wild") {
-      const pokemonName = nonMentionArgs[1]?.toLowerCase();
-      if (!pokemonName) {
+      const remainingArgs = nonMentionArgs.slice(1);
+      if (!remainingArgs.length) {
         return message.reply(
           "**Usage:** `p!admin cyberadmin spawn wild <pokemon> [iv%] [shiny]`\n" +
           "**Examples:**\n" +
@@ -124,21 +124,27 @@ async function execute(message, args, spawns) {
         );
       }
 
-      const pokemonData = getPokemonByName(pokemonName);
-      if (!pokemonData) {
-        return message.reply(`Pokémon **${pokemonName}** not found! Check the name and try again.`);
-      }
-
-      // Parse optional iv% and shiny from remaining args
+      // Smart parse: peel trailing shiny/number from right, rest is pokemon name
+      let pokemonData = null;
       let ivPct = null;
       let forceShiny = false;
-      for (let i = 2; i < nonMentionArgs.length; i++) {
-        const a = nonMentionArgs[i].toLowerCase();
-        if (a === "shiny") { forceShiny = true; }
-        else if (!isNaN(a)) { ivPct = Math.min(100, Math.max(0, parseFloat(a))); }
+      const nameArgs = [...remainingArgs];
+      while (nameArgs.length > 0) {
+        const last = nameArgs[nameArgs.length - 1].toLowerCase();
+        if (last === "shiny") { forceShiny = true; nameArgs.pop(); }
+        else if (!isNaN(last) && parseFloat(last) >= 0 && parseFloat(last) <= 100) {
+          ivPct = parseFloat(last); nameArgs.pop();
+        } else break;
+      }
+      for (let len = nameArgs.length; len >= 1; len--) {
+        const found = getPokemonByName(nameArgs.slice(0, len).join(" "));
+        if (found) { pokemonData = found; break; }
+      }
+      if (!pokemonData) {
+        return message.reply(`Pokemon **${remainingArgs.join(" ")}** not found! Check the name and try again.`);
       }
 
-      // Build IVs
+      // Build IVs from specified percentage or random
       let ivs;
       if (ivPct !== null) {
         const targetTotal = Math.round((ivPct / 100) * 186);
@@ -161,7 +167,7 @@ async function execute(message, args, spawns) {
       spawns.set(channelId, { pokemonId: pokemonData.id, spawnedAt: Date.now(), forceShiny, ivs });
 
       const isEvent = pokemonData.isEventPokemon;
-      const image = getPokemonImage(pokemonData.id, forceShiny);
+      const image = getPokemonImage(pokemonData.id); // always show normal image in spawn embed (shiny revealed on catch)
       const displayName = pokemonData.displayName || capitalize(pokemonData.name);
       const shinyTag = forceShiny ? "✨ **SHINY** " : "";
       const ivTag = ivPct !== null ? ` • **${ivTotal}% IV**` : "";
