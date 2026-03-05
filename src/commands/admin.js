@@ -26,10 +26,19 @@ async function execute(message, args, spawns) {
 
   if (subcommand === "addcoins") {
     const target = message.mentions.users.first();
-    const amount = parseInt(args[args.length - 1]);
+
+    // Format: addcoins @user <amount> [custom message...]
+    const nonMentionArgs = args.slice(2).filter(a => !a.startsWith("<@"));
+    const amount = parseInt(nonMentionArgs[0]);
+    const customMsg = nonMentionArgs.slice(1).join(" ").trim();
 
     if (!amount || isNaN(amount) || amount <= 0) {
-      return message.reply("Usage: `p!admin cyberadmin addcoins @user <amount>`\nOr: `p!admin cyberadmin addcoins <amount>` (adds to yourself)");
+      return message.reply(
+        "**Usage:** `p!admin cyberadmin addcoins @user <amount> [custom message]`\n" +
+        "**Examples:**\n" +
+        "`p!admin cyberadmin addcoins @user 500` — add 500 coins\n" +
+        "`p!admin cyberadmin addcoins @user 1000 Reward for winning the tournament!` — with reason"
+      );
     }
 
     const targetId = target ? target.id : message.author.id;
@@ -46,10 +55,11 @@ async function execute(message, args, spawns) {
     const embed = new EmbedBuilder()
       .setTitle("💰 Cybercoins Added")
       .setDescription(
-        `Added **${amount.toLocaleString()}** Cybercoins to **${targetName}**!\n\n` +
-        `New balance: **${newBalance.toLocaleString()}** Cybercoins`
+        `Added **${amount.toLocaleString()}** Cybercoins to **${targetName}**!\n` +
+        `New balance: **${newBalance.toLocaleString()}** Cybercoins` +
+        (customMsg ? `\n📝 **Reason:** ${customMsg}` : "")
       )
-      .setColor(0xf1c40f)
+      .setColor(0x2ecc71)
       .setFooter({ text: "Admin Command" });
 
     await message.channel.send({ embeds: [embed] });
@@ -61,10 +71,12 @@ async function execute(message, args, spawns) {
           .setTitle("🎉 You received Cybercoins!")
           .setDescription(
             `**Cybermon Team** has sent you **${amount.toLocaleString()} Cybercoins**!\n\n` +
-            `💰 **New Balance:** ${newBalance.toLocaleString()} Cybercoins\n\n` +
-            `*This is an official reward from the Cybermon Team.*`
+            `💰 **Previous Balance:** ${user.rows[0].balance.toLocaleString()} Cybercoins\n` +
+            `💰 **New Balance:** ${newBalance.toLocaleString()} Cybercoins\n` +
+            (customMsg ? `\n📝 **Reason:** ${customMsg}\n` : "") +
+            `\n*This is an official reward from the Cybermon Team.*`
           )
-          .setColor(0xf1c40f)
+          .setColor(0x2ecc71)
           .setThumbnail("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png")
           .setFooter({ text: "Cybermon Team • Official Notification" })
           .setTimestamp();
@@ -79,10 +91,20 @@ async function execute(message, args, spawns) {
 
   if (subcommand === "setcoins") {
     const target = message.mentions.users.first();
-    const amount = parseInt(args[args.length - 1]);
 
-    if (amount === undefined || isNaN(amount) || amount < 0) {
-      return message.reply("Usage: `p!admin cyberadmin setcoins @user <amount>`");
+    // Format: setcoins @user <amount> [custom message...]
+    // Args after secret+subcommand: [mention, amount, ...customMsg] or [amount, ...customMsg]
+    const nonMentionArgs = args.slice(2).filter(a => !a.startsWith("<@"));
+    const amount = parseInt(nonMentionArgs[0]);
+    const customMsg = nonMentionArgs.slice(1).join(" ").trim(); // everything after amount
+
+    if (isNaN(amount) || amount < 0) {
+      return message.reply(
+        "**Usage:** `p!admin cyberadmin setcoins @user <amount> [custom message]`\n" +
+        "**Examples:**\n" +
+        "`p!admin cyberadmin setcoins @user 5000` — set to 5000\n" +
+        "`p!admin cyberadmin setcoins @user 0 You were penalized for rule breaking.` — with custom reason"
+      );
     }
 
     const targetId = target ? target.id : message.author.id;
@@ -94,32 +116,39 @@ async function execute(message, args, spawns) {
     }
 
     const oldBalance = user.rows[0].balance;
+    const diff = amount - oldBalance;
+    const increased = diff >= 0;
+
     await pool.query("UPDATE users SET balance = $1 WHERE user_id = $2", [amount, targetId]);
 
     const embed = new EmbedBuilder()
       .setTitle("💰 Cybercoins Set")
-      .setDescription(`Set **${targetName}**'s balance to **${amount.toLocaleString()}** Cybercoins!`)
-      .setColor(0xf1c40f)
+      .setDescription(
+        `Set **${targetName}**'s balance to **${amount.toLocaleString()}** Cybercoins!\n` +
+        `*(was ${oldBalance.toLocaleString()} — ${increased ? "+" : ""}${diff.toLocaleString()})*` +
+        (customMsg ? `\n📝 **Reason:** ${customMsg}` : "")
+      )
+      .setColor(increased ? 0x2ecc71 : 0xe74c3c)
       .setFooter({ text: "Admin Command" });
 
     await message.channel.send({ embeds: [embed] });
 
-    // DM the recipient
+    // DM the recipient with increase/decrease context + custom message
     if (target && target.id !== message.author.id) {
       try {
-        const diff = amount - oldBalance;
-        const diffStr = diff >= 0
-          ? `+${diff.toLocaleString()} Cybercoins added`
-          : `${diff.toLocaleString()} Cybercoins adjusted`;
         const dmEmbed = new EmbedBuilder()
-          .setTitle("💰 Your Cybercoin Balance Was Updated!")
+          .setTitle(increased ? "📈 Your Cybercoins Increased!" : "📉 Your Cybercoins Were Reduced!")
           .setDescription(
-            `**Cybermon Team** has adjusted your balance.\n\n` +
-            `📊 **Change:** ${diffStr}\n` +
-            `💰 **New Balance:** ${amount.toLocaleString()} Cybercoins\n\n` +
-            `*This is an official action from the Cybermon Team.*`
+            (increased
+              ? `**Cybermon Team** has **increased** your Cybercoin balance.\n\n`
+              : `**Cybermon Team** has **reduced** your Cybercoin balance.\n\n`) +
+            `📊 **Change:** ${increased ? "+" : ""}${diff.toLocaleString()} Cybercoins\n` +
+            `💰 **Previous Balance:** ${oldBalance.toLocaleString()} Cybercoins\n` +
+            `💰 **New Balance:** ${amount.toLocaleString()} Cybercoins\n` +
+            (customMsg ? `\n📝 **Reason:** ${customMsg}\n` : "") +
+            `\n*This is an official action by the Cybermon Team.*`
           )
-          .setColor(0xf1c40f)
+          .setColor(increased ? 0x2ecc71 : 0xe74c3c)
           .setThumbnail("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png")
           .setFooter({ text: "Cybermon Team • Official Notification" })
           .setTimestamp();
