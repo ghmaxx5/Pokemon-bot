@@ -41,7 +41,6 @@ async function execute(message, args, spawns) {
     }
 
     await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [amount, targetId]);
-
     const newBalance = user.rows[0].balance + amount;
 
     const embed = new EmbedBuilder()
@@ -54,6 +53,27 @@ async function execute(message, args, spawns) {
       .setFooter({ text: "Admin Command" });
 
     await message.channel.send({ embeds: [embed] });
+
+    // DM the recipient
+    if (target && target.id !== message.author.id) {
+      try {
+        const dmEmbed = new EmbedBuilder()
+          .setTitle("🎉 You received Cybercoins!")
+          .setDescription(
+            `**Cybermon Team** has sent you **${amount.toLocaleString()} Cybercoins**!\n\n` +
+            `💰 **New Balance:** ${newBalance.toLocaleString()} Cybercoins\n\n` +
+            `*This is an official reward from the Cybermon Team.*`
+          )
+          .setColor(0xf1c40f)
+          .setThumbnail("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png")
+          .setFooter({ text: "Cybermon Team • Official Notification" })
+          .setTimestamp();
+        await target.send({ embeds: [dmEmbed] });
+      } catch (e) {
+        // User may have DMs disabled — silently skip
+      }
+    }
+
     try { await message.delete(); } catch (e) {}
   }
 
@@ -73,17 +93,40 @@ async function execute(message, args, spawns) {
       return message.reply("That user hasn't started their journey yet.");
     }
 
+    const oldBalance = user.rows[0].balance;
     await pool.query("UPDATE users SET balance = $1 WHERE user_id = $2", [amount, targetId]);
 
     const embed = new EmbedBuilder()
       .setTitle("💰 Cybercoins Set")
-      .setDescription(
-        `Set **${targetName}**'s balance to **${amount.toLocaleString()}** Cybercoins!`
-      )
+      .setDescription(`Set **${targetName}**'s balance to **${amount.toLocaleString()}** Cybercoins!`)
       .setColor(0xf1c40f)
       .setFooter({ text: "Admin Command" });
 
     await message.channel.send({ embeds: [embed] });
+
+    // DM the recipient
+    if (target && target.id !== message.author.id) {
+      try {
+        const diff = amount - oldBalance;
+        const diffStr = diff >= 0
+          ? `+${diff.toLocaleString()} Cybercoins added`
+          : `${diff.toLocaleString()} Cybercoins adjusted`;
+        const dmEmbed = new EmbedBuilder()
+          .setTitle("💰 Your Cybercoin Balance Was Updated!")
+          .setDescription(
+            `**Cybermon Team** has adjusted your balance.\n\n` +
+            `📊 **Change:** ${diffStr}\n` +
+            `💰 **New Balance:** ${amount.toLocaleString()} Cybercoins\n\n` +
+            `*This is an official action from the Cybermon Team.*`
+          )
+          .setColor(0xf1c40f)
+          .setThumbnail("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png")
+          .setFooter({ text: "Cybermon Team • Official Notification" })
+          .setTimestamp();
+        await target.send({ embeds: [dmEmbed] });
+      } catch (e) {}
+    }
+
     try { await message.delete(); } catch (e) {}
   }
 
@@ -95,13 +138,28 @@ async function execute(message, args, spawns) {
 
     await pool.query("UPDATE users SET balance = balance + $1 WHERE started = TRUE", [amount]);
 
-    const embed = new EmbedBuilder()
+    // Admin confirmation (ephemeral-style, gets deleted)
+    const adminEmbed = new EmbedBuilder()
       .setTitle("💰 Cybercoins Distributed")
       .setDescription(`Added **${amount.toLocaleString()}** Cybercoins to **all** trainers!`)
       .setColor(0xf1c40f)
       .setFooter({ text: "Admin Command" });
+    await message.channel.send({ embeds: [adminEmbed] });
 
-    await message.channel.send({ embeds: [embed] });
+    // Public announcement so all users see the reward
+    const announcementEmbed = new EmbedBuilder()
+      .setTitle("🎉 Cybermon Team Reward!")
+      .setDescription(
+        `**All trainers** have received **${amount.toLocaleString()} Cybercoins** from the Cybermon Team!\n\n` +
+        `💰 Check your balance with \`p!bal\`\n\n` +
+        `*Thank you for being part of the Cybermon community!*`
+      )
+      .setColor(0xf1c40f)
+      .setThumbnail("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png")
+      .setFooter({ text: "Cybermon Team • Official Reward" })
+      .setTimestamp();
+    await message.channel.send({ embeds: [announcementEmbed] });
+
     try { await message.delete(); } catch (e) {}
   }
 
