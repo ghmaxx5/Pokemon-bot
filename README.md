@@ -293,6 +293,6 @@ This project is licensed under the MIT License.
 ---
 
 <div align="center">
-  <b>Made with ❤️ by the Cybermon Team</b><br>
+  <b>Made with ❤️ by the MaxTech Team</b><br>
   <i>Gotta catch 'em all!</i>
 </div>
