@@ -1,9 +1,49 @@
+const { AsyncLocalStorage } = require("async_hooks");
+const asyncLocalStorage = new AsyncLocalStorage();
+global.asyncLocalStorage = asyncLocalStorage;
+
+const discordJS = require("discord.js");
+const OriginalEmbedBuilder = discordJS.EmbedBuilder;
+
+class PatchedEmbedBuilder extends OriginalEmbedBuilder {
+  constructor(data) {
+    super(data);
+    const store = asyncLocalStorage.getStore();
+    if (store && store.requester) {
+      this._requester = store.requester;
+    }
+  }
+}
+
+const originalToJSON = OriginalEmbedBuilder.prototype.toJSON;
+PatchedEmbedBuilder.prototype.toJSON = function() {
+  const data = originalToJSON.call(this);
+  const requester = this._requester;
+  if (requester) {
+    const requesterText = `Requested by ${requester.username}`;
+    const currentFooter = data.footer?.text || "";
+    if (!currentFooter.includes(requesterText)) {
+      const newFooter = currentFooter 
+        ? `${currentFooter} • ${requesterText}` 
+        : requesterText;
+      data.footer = {
+        text: newFooter,
+        icon_url: requester.displayAvatarURL({ dynamic: true })
+      };
+    }
+    data.timestamp = new Date().toISOString();
+  }
+  return data;
+};
+
+discordJS.EmbedBuilder = PatchedEmbedBuilder;
+
 const {
   Client,
   GatewayIntentBits,
   Collection,
   EmbedBuilder,
-} = require("discord.js");
+} = discordJS;
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
@@ -135,7 +175,9 @@ client.on("messageCreate", async (message) => {
       commands.get(commandName) || commands.get(aliases.get(commandName));
     if (!command) return;
 
-    await command.execute(message, args, spawns, prefix);
+    await asyncLocalStorage.run({ requester: message.author }, async () => {
+      await command.execute(message, args, spawns, prefix);
+    });
   } catch (error) {
     console.error(`Error executing command:`, error);
     message
