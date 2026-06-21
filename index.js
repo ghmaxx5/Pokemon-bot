@@ -71,8 +71,8 @@ http.createServer((req, res) => {
   if (req.url.startsWith("/admin") || req.url.startsWith("/api/admin")) {
     handleAdminRequest(req, res, client);
   } else {
-    res.writeHead(200, { "Content-Type": "text/plain" });
-    res.write("Cybermon is alive!");
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.write("<h3>Cybermon is alive!</h3>The Admin Panel is located at <a href='/admin'>/admin</a>");
     res.end();
   }
 }).listen(8080);
