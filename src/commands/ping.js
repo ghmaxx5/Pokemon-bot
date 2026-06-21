@@ -18,7 +18,7 @@ function getStatus(ping) {
   return              { label: "Poor",      emoji: "🔴", color: 0xe74c3c };
 }
 
-async function execute(message) {
+async function execute(message, args, spawns, prefix) {
   const wsLatency = message.client.ws.ping;
   const before = Date.now();
 
@@ -59,4 +59,4 @@ async function execute(message) {
   });
 }
 
-module.exports = { name: "ping", aliases: ["c!ping"], description: "Check bot latency", execute };
+module.exports = { name: "ping", aliases: ["pong", "latency"], description: "Check bot latency", execute };

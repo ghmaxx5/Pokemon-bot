@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require("discord.js");
 const { pool } = require("../database");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const type = args[0]?.toLowerCase() || "pokemon";
 
   if (type === "pokemon" || type === "p") {
@@ -63,7 +63,7 @@ async function execute(message, args) {
     return message.channel.send({ embeds: [embed] });
   }
 
-  message.reply("Usage: `c!leaderboard [pokemon|balance|shiny]`");
+  message.reply(`Usage: \`${prefix}leaderboard [pokemon|balance|shiny]\``);
 }
 
 module.exports = { name: "leaderboard", aliases: ["lb", "top"], description: "View leaderboards", execute };

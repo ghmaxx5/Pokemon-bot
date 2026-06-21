@@ -5,11 +5,11 @@ const { capitalize, totalIV } = require("../utils/helpers");
 
 const activeTrades = new Map();
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (!args.length) {
-    return message.reply("Usage:\n`c!trade @user` - Start a trade\n`c!trade add <pokemon id>` - Add Pokemon to trade\n`c!trade remove <pokemon id>` - Remove Pokemon from trade\n`c!trade confirm` - Confirm the trade\n`c!trade cancel` - Cancel the trade");
+    return message.reply(`Usage:\n\`${prefix}trade @user\` - Start a trade\n\`${prefix}trade add <pokemon id>\` - Add Pokemon to trade\n\`${prefix}trade remove <pokemon id>\` - Remove Pokemon from trade\n\`${prefix}trade confirm\` - Confirm the trade\n\`${prefix}trade cancel\` - Cancel the trade`);
   }
 
   const subcommand = args[0].toLowerCase();
@@ -25,7 +25,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "add") {
-    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `c!trade add <pokemon position>`");
+    if (!args[1] || isNaN(args[1])) return message.reply(`Usage: \`${prefix}trade add <pokemon position>\``);
     const position = parseInt(args[1]);
     const { getPokemonIdByPosition } = require("../utils/positionHelper");
     const pokemonDbId = await getPokemonIdByPosition(userId, position);
@@ -36,7 +36,7 @@ async function execute(message, args) {
     for (const [key, t] of activeTrades) {
       if (t.user1 === userId || t.user2 === userId) { trade = t; tradeKey = key; break; }
     }
-    if (!trade) return message.reply("You don't have an active trade! Start one with `c!trade @user`.");
+    if (!trade) return message.reply(`You don't have an active trade! Start one with \`${prefix}trade @user\`.`);
 
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
     if (poke.rows.length === 0) return message.reply("You don't own that Pokemon.");
@@ -55,7 +55,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "remove") {
-    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `c!trade remove <pokemon position>`");
+    if (!args[1] || isNaN(args[1])) return message.reply(`Usage: \`${prefix}trade remove <pokemon position>\``);
     const position = parseInt(args[1]);
     const { getPokemonIdByPosition } = require("../utils/positionHelper");
     const pokemonDbId = await getPokemonIdByPosition(userId, position);
@@ -166,7 +166,7 @@ async function execute(message, args) {
 
   for (const [key, t] of activeTrades) {
     if (t.user1 === userId || t.user2 === userId) {
-      return message.reply("You already have an active trade! Cancel it first with `c!trade cancel`.");
+      return message.reply(`You already have an active trade! Cancel it first with \`${prefix}trade cancel\`.`);
     }
   }
 
@@ -184,11 +184,11 @@ async function execute(message, args) {
     .setTitle("Trade Started!")
     .setDescription(
       `${message.author} wants to trade with ${mentioned}!\n\n` +
-      `Use \`c!trade add <pokemon id>\` to add Pokemon\n` +
-      `Use \`c!trade remove <pokemon id>\` to remove Pokemon\n` +
-      `Use \`c!trade info\` to see current offers\n` +
-      `Use \`c!trade confirm\` when ready\n` +
-      `Use \`c!trade cancel\` to cancel`
+      `Use \`${prefix}trade add <pokemon id>\` to add Pokemon\n` +
+      `Use \`${prefix}trade remove <pokemon id>\` to remove Pokemon\n` +
+      `Use \`${prefix}trade info\` to see current offers\n` +
+      `Use \`${prefix}trade confirm\` when ready\n` +
+      `Use \`${prefix}trade cancel\` to cancel`
     )
     .setColor(0x9b59b6);
 

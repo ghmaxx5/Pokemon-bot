@@ -4,20 +4,20 @@ const { SHOP_ITEMS, SHOP_CATEGORIES } = require("../data/shopItems");
 const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize, generateIVs, randomNature, totalIV } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  if (user.rows.length === 0) return message.reply("You haven't started yet! Use `c!start` to begin.");
+  if (user.rows.length === 0) return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
 
   if (!args.length) {
-    return showShop(message, user.rows[0]);
+    return showShop(message, user.rows[0], prefix);
   }
 
   const subcommand = args[0].toLowerCase();
 
   if (subcommand === "buy") {
-    if (!args[1]) return message.reply("Usage: `c!shop buy <item name> [quantity]`\nUse `c!shop` to see available items.");
+    if (!args[1]) return message.reply(`Usage: \`${prefix}shop buy <item name> [quantity]\`\nUse \`${prefix}shop\` to see available items.`);
 
     const lastArg = args[args.length - 1];
     let quantity = 1;
@@ -34,7 +34,7 @@ async function execute(message, args) {
       i.id === itemKey || i.name.toLowerCase() === itemNameLower
     );
 
-    if (!item) return message.reply("Item not found! Use `c!shop` to see available items.");
+    if (!item) return message.reply(`Item not found! Use \`${prefix}shop\` to see available items.`);
 
     const totalCost = item.price * quantity;
     if (user.rows[0].balance < totalCost) {
@@ -43,7 +43,7 @@ async function execute(message, args) {
 
     if (item.id === "rare_candy" && quantity > 1) {
       const selectedId = user.rows[0].selected_pokemon_id;
-      if (!selectedId) return message.reply("Select a Pokemon first to use Rare Candies! Use `c!select <id>`.");
+      if (!selectedId) return message.reply(`Select a Pokemon first to use Rare Candies! Use \`${prefix}select <id>\`.`);
 
       const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [selectedId, userId]);
       if (poke.rows.length === 0) return message.reply("Selected Pokemon not found.");
@@ -89,7 +89,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "use") {
-    if (args.length < 2) return message.reply("Usage: `c!shop use <item name> [pokemon id]`");
+    if (args.length < 2) return message.reply(`Usage: \`${prefix}shop use <item name> [pokemon id]\``);
 
     const itemName = args.slice(1).filter(a => isNaN(a)).join("_").toLowerCase().replace(/\s+/g, "_");
     const pokemonDbId = args.find(a => !isNaN(a) && a !== args[0]) ? parseInt(args.find(a => !isNaN(a) && a !== args[0])) : user.rows[0].selected_pokemon_id;
@@ -182,18 +182,18 @@ async function execute(message, args) {
     }
 
     if (item.id === "master_ball") {
-      return message.reply("🟣 The **Master Ball** is used automatically! When a Pokemon spawns, type `c!catch master ball` to catch it without guessing the name.");
+      return message.reply(`🟣 The **Master Ball** is used automatically! When a Pokemon spawns, type \`${prefix}catch master ball\` to catch it without guessing the name.`);
     }
 
     if (item.id === "mega_stone" || item.id === "gmax_ring") {
-      return message.reply(`Use \`shop hold ${item.id} <pokemon number>\` to give this item to a Pokemon.\nUse the number shown in your Pokemon list.`);
+      return message.reply(`Use \`${prefix}shop hold ${item.id} <pokemon number>\` to give this item to a Pokemon.\nUse the number shown in your Pokemon list.`);
     }
 
     return message.reply(`To use **${item.name}**, see its specific usage instructions.`);
   }
 
   if (subcommand === "hold") {
-    if (args.length < 3) return message.reply("Usage: `shop hold <item> <pokemon number>`\nItems: `mega stone`, `gmax ring`\nUse the number shown in your Pokemon list.");
+    if (args.length < 3) return message.reply(`Usage: \`${prefix}shop hold <item> <pokemon number>\`\nItems: \`mega stone\`, \`gmax ring\`\nUse the number shown in your Pokemon list.`);
 
     const pokemonDbId = parseInt(args[args.length - 1]);
     if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon number at the end (shown in your Pokemon list).");
@@ -207,7 +207,7 @@ async function execute(message, args) {
     const itemName = HOLD_ALIASES[rawItemName];
 
     if (!itemName) {
-      return message.reply("Only **Mega Stone** and **Gigantamax Ring** can be held by Pokemon.\nTry: `shop hold mega stone <number>` or `shop hold gmax ring <number>`");
+      return message.reply(`Only **Mega Stone** and **Gigantamax Ring** can be held by Pokemon.\nTry: \`${prefix}shop hold mega stone <number>\` or \`${prefix}shop hold gmax ring <number>\``);
     }
 
     const inv = await pool.query("SELECT quantity FROM user_inventory WHERE user_id = $1 AND item_id = $2", [userId, itemName]);
@@ -227,7 +227,7 @@ async function execute(message, args) {
     }
 
     if (poke.rows[0].held_item) {
-      return message.reply(`This Pokemon is already holding a **${SHOP_ITEMS[poke.rows[0].held_item]?.name || poke.rows[0].held_item}**! Use \`shop unhold <pokemon number>\` first.`);
+      return message.reply(`This Pokemon is already holding a **${SHOP_ITEMS[poke.rows[0].held_item]?.name || poke.rows[0].held_item}**! Use \`${prefix}shop unhold <pokemon number>\` first.`);
     }
 
     await pool.query("UPDATE pokemon SET held_item = $1 WHERE id = $2", [itemName, pokemonDbId]);
@@ -240,7 +240,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "unhold") {
-    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `shop unhold <pokemon number>`\nUse the number shown in your Pokemon list.");
+    if (!args[1] || isNaN(args[1])) return message.reply(`Usage: \`${prefix}shop unhold <pokemon number>\`\nUse the number shown in your Pokemon list.`);
     const pokemonDbId = parseInt(args[1]);
 
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
@@ -273,7 +273,7 @@ async function execute(message, args) {
     const inv = await pool.query("SELECT * FROM user_inventory WHERE user_id = $1 AND quantity > 0 ORDER BY item_id", [userId]);
 
     if (inv.rows.length === 0) {
-      return message.reply("Your inventory is empty! Use `c!shop buy <item>` to purchase items.");
+      return message.reply(`Your inventory is empty! Use \`${prefix}shop buy <item>\` to purchase items.`);
     }
 
     let desc = "";
@@ -288,15 +288,15 @@ async function execute(message, args) {
       .setTitle(`${message.author.username}'s Inventory`)
       .setDescription(desc)
       .setColor(0x9b59b6)
-      .setFooter({ text: "Use shop use <item> [number] | shop hold <item> <number>" });
+      .setFooter({ text: `Use ${prefix}shop use <item> [number] | ${prefix}shop hold <item> <number>` });
 
     return message.channel.send({ embeds: [embed] });
   }
 
-  return showShop(message, user.rows[0]);
+  return showShop(message, user.rows[0], prefix);
 }
 
-async function showShop(message, user) {
+async function showShop(message, user, prefix) {
   const embed = new EmbedBuilder()
     .setTitle("🏪 Cyber Shop")
     .setDescription(`Your balance: **${user.balance.toLocaleString()}** Cybercoins\n\n`)
@@ -310,7 +310,7 @@ async function showShop(message, user) {
     embed.addFields({ name: `${cat.emoji} ${cat.name}`, value: itemStr, inline: false });
   }
 
-  embed.setFooter({ text: "shop buy <item> [qty] | shop use <item> [number] | shop hold <item> <number> | inv" });
+  embed.setFooter({ text: `${prefix}shop buy <item> [qty] | ${prefix}shop use <item> [number] | ${prefix}shop hold <item> <number> | inv` });
 
   message.channel.send({ embeds: [embed] });
 }

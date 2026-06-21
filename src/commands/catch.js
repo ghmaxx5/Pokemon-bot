@@ -6,17 +6,17 @@ const { generateIVs, randomNature, totalIV, capitalize } = require("../utils/hel
 const BASE_SHINY_RATE = 1 / 4096;
 const BOOSTED_SHINY_RATE = 1 / 2048;
 
-async function execute(message, args, spawns) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
   const channelId = message.channel.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
   if (user.rows.length === 0) {
-    return message.reply("You haven't started yet! Use `c!start` to begin your journey.");
+    return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin your journey.`);
   }
 
   if (!args.length) {
-    return message.reply("Please specify the Pokemon name! Usage: `c!catch <name>`");
+    return message.reply(`Please specify the Pokemon name! Usage: \`${prefix}catch <name>\``);
   }
 
   const spawn = spawns.get(channelId);
@@ -58,7 +58,7 @@ async function execute(message, args, spawns) {
 
   if (usingMasterBall) {
     if (!hasMasterBall) {
-      return message.reply("You don't have a Master Ball! Buy one from the shop with `c!shop buy master ball`.");
+      return message.reply(`You don't have a Master Ball! Buy one from the shop with \`${prefix}shop buy master ball\`.`);
     }
     await pool.query("UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = $1 AND item_id = 'master_ball'", [userId]);
     await pool.query("DELETE FROM user_inventory WHERE user_id = $1 AND item_id = 'master_ball' AND quantity <= 0", [userId]);

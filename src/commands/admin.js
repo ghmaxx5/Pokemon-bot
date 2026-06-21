@@ -5,7 +5,7 @@ const { capitalize, generateIVs, randomNature } = require("../utils/helpers");
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || "cyberadmin";
 
-async function execute(message, args, spawns) {
+async function execute(message, args, spawns, prefix) {
   if (!args.length || args[0] !== ADMIN_SECRET) {
     return;
   }
@@ -34,10 +34,10 @@ async function execute(message, args, spawns) {
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return message.reply(
-        "**Usage:** `c!admin cyberadmin addcoins @user <amount> [custom message]`\n" +
-        "**Examples:**\n" +
-        "`c!admin cyberadmin addcoins @user 500` — add 500 coins\n" +
-        "`c!admin cyberadmin addcoins @user 1000 Reward for winning the tournament!` — with reason"
+        `**Usage:** \`${prefix}admin ${args[0]} addcoins @user <amount> [custom message]\`\n` +
+        `**Examples:**\n` +
+        `\`${prefix}admin ${args[0]} addcoins @user 500\` — add 500 coins\n` +
+        `\`${prefix}admin ${args[0]} addcoins @user 1000 Reward for winning the tournament!\` — with reason`
       );
     }
 
@@ -100,10 +100,10 @@ async function execute(message, args, spawns) {
 
     if (isNaN(amount) || amount < 0) {
       return message.reply(
-        "**Usage:** `c!admin cyberadmin setcoins @user <amount> [custom message]`\n" +
-        "**Examples:**\n" +
-        "`c!admin cyberadmin setcoins @user 5000` — set to 5000\n" +
-        "`c!admin cyberadmin setcoins @user 0 You were penalized for rule breaking.` — with custom reason"
+        `**Usage:** \`${prefix}admin ${args[0]} setcoins @user <amount> [custom message]\`\n` +
+        `**Examples:**\n` +
+        `\`${prefix}admin ${args[0]} setcoins @user 5000\` — set to 5000\n` +
+        `\`${prefix}admin ${args[0]} setcoins @user 0 You were penalized for rule breaking.\` — with custom reason`
       );
     }
 
@@ -162,7 +162,7 @@ async function execute(message, args, spawns) {
   if (subcommand === "addall") {
     const amount = parseInt(args[2]);
     if (!amount || isNaN(amount) || amount <= 0) {
-      return message.reply("Usage: `c!admin cyberadmin addall <amount>`");
+      return message.reply(`Usage: \`${prefix}admin ${args[0]} addall <amount>\``);
     }
 
     await pool.query("UPDATE users SET balance = balance + $1 WHERE started = TRUE", [amount]);
@@ -180,7 +180,7 @@ async function execute(message, args, spawns) {
       .setTitle("🎉 Cybermon Team Reward!")
       .setDescription(
         `**All trainers** have received **${amount.toLocaleString()} Cybercoins** from the Cybermon Team!\n\n` +
-        `💰 Check your balance with \`c!bal\`\n\n` +
+        `💰 Check your balance with \`${prefix}bal\`\n\n` +
         `*Thank you for being part of the Cybermon community!*`
       )
       .setColor(0xf1c40f)
@@ -202,12 +202,12 @@ async function execute(message, args, spawns) {
       const remainingArgs = nonMentionArgs.slice(1);
       if (!remainingArgs.length) {
         return message.reply(
-          "**Usage:** `c!admin cyberadmin spawn wild <pokemon> [iv%] [shiny]`\n" +
-          "**Examples:**\n" +
-          "`c!admin cyberadmin spawn wild greninja` — random IV, not shiny\n" +
-          "`c!admin cyberadmin spawn wild charizard 100 shiny` — 100% IV, shiny\n" +
-          "`c!admin cyberadmin spawn wild eternatus 85` — 85% IV, not shiny\n" +
-          "`c!admin cyberadmin spawn wild holi spirit greninja shiny` — shiny event spawn"
+          `**Usage:** \`${prefix}admin ${args[0]} spawn wild <pokemon> [iv%] [shiny]\`\n` +
+          `**Examples:**\n` +
+          `\`${prefix}admin ${args[0]} spawn wild greninja\` — random IV, not shiny\n` +
+          `\`${prefix}admin ${args[0]} spawn wild charizard 100 shiny\` — 100% IV, shiny\n` +
+          `\`${prefix}admin ${args[0]} spawn wild eternatus 85\` — 85% IV, not shiny\n` +
+          `\`${prefix}admin ${args[0]} spawn wild holi spirit greninja shiny\` — shiny event spawn`
         );
       }
 
@@ -266,7 +266,7 @@ async function execute(message, args, spawns) {
             ? `Admin summoned ${shinyTag}**${displayName}** during the **${pokemonData.eventName || "Special Event"}**!`
             : `Admin summoned a ${shinyTag}**${displayName}**!`) +
           `\n${ivTag ? ivTag + "\n" : ""}` +
-          `Type \`c!catch ${pokemonData.name.replace(/-/g, " ")}\` to catch it!`
+          `Type \`${prefix}catch ${pokemonData.name.replace(/-/g, " ")}\` to catch it!`
         )
         .setImage(image)
         .setColor(forceShiny ? 0xffd700 : isEvent ? 0xf72585 : 0xff6600)
@@ -297,11 +297,11 @@ async function execute(message, args, spawns) {
     if (nonMentionArgs.length < 1) {
       return message.reply(
         "Usage:\n" +
-        "`c!admin cyberadmin spawn wild <pokemon>` — spawns in channel for anyone to catch\n" +
-        "`c!admin cyberadmin spawn <pokemon> [iv%] [level] [shiny]` — gives directly to you\n" +
-        "`c!admin cyberadmin spawn @user <pokemon> [iv%] [level] [shiny]` — gives directly to user\n" +
-        "Example: `c!admin cyberadmin spawn wild holi-spirit-greninja`\n" +
-        "Example: `c!admin cyberadmin spawn pikachu 100 50 shiny`"
+        `\`${prefix}admin ${args[0]} spawn wild <pokemon>\` — spawns in channel for anyone to catch\n` +
+        `\`${prefix}admin ${args[0]} spawn <pokemon> [iv%] [level] [shiny]\` — gives directly to you\n` +
+        `\`${prefix}admin ${args[0]} spawn @user <pokemon> [iv%] [level] [shiny]\` — gives directly to user\n` +
+        `Example: \`${prefix}admin ${args[0]} spawn wild holi-spirit-greninja\`\n` +
+        `Example: \`${prefix}admin ${args[0]} spawn pikachu 100 50 shiny\``
       );
     }
 

@@ -4,11 +4,11 @@ const { SHOP_ITEMS } = require("../data/shopItems");
 const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  if (user.rows.length === 0) return message.reply("You haven't started yet! Use `start` to begin.");
+  if (user.rows.length === 0) return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
 
   const inv = await pool.query("SELECT * FROM user_inventory WHERE user_id = $1 AND quantity > 0 ORDER BY item_id", [userId]);
   const heldPokemon = await pool.query("SELECT id, pokemon_id, nickname, held_item FROM pokemon WHERE user_id = $1 AND held_item IS NOT NULL ORDER BY id", [userId]);
@@ -43,7 +43,7 @@ async function execute(message, args) {
     embed.addFields({ name: "🔗 Held by Pokemon", value: heldStr, inline: false });
   }
 
-  embed.setFooter({ text: "shop hold <item> <number> | shop unhold <number>" });
+  embed.setFooter({ text: `Use ${prefix}shop hold <item> <number> | ${prefix}shop unhold <number>` });
 
   return message.channel.send({ embeds: [embed] });
 }

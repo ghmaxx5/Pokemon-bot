@@ -3,15 +3,16 @@ const { pool } = require("../database");
 const { getPokemonById, getPokemonByName, getPokemonImage } = require("../data/pokemonLoader");
 const { capitalize, totalIV } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  if (user.rows.length === 0) return message.reply("You haven't started yet!");
+  if (user.rows.length === 0) return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
 
   let pokemonDbId;
+  let position;
   if (args.length > 0 && !isNaN(args[0])) {
-    const position = parseInt(args[0]);
+    position = parseInt(args[0]);
     const { getPokemonIdByPosition } = require("../utils/positionHelper");
     pokemonDbId = await getPokemonIdByPosition(userId, position);
     if (!pokemonDbId) return message.reply("That Pokemon was not found in your collection.");
@@ -41,7 +42,8 @@ async function execute(message, args) {
   }
 
   if (evolution.item) {
-    return message.reply(`**${capitalize(data.name)}** needs a **${capitalize(evolution.item.replace(/-/g, " "))}** to evolve. Use \`c!evolve ${pokemonDbId} --confirm\` if you have one. (Item evolution is automatic for now)`);
+    const posArg = position ? ` ${position}` : "";
+    return message.reply(`**${capitalize(data.name)}** needs a **${capitalize(evolution.item.replace(/-/g, " "))}** to evolve. Use \`${prefix}evolve${posArg} --confirm\` if you have one. (Item evolution is automatic for now)`);
   }
 
   const confirmed = args.includes("--confirm") || !evolution.item;

@@ -166,7 +166,7 @@ function preparePokemonForBattle(pRow, data) {
   };
 }
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
   const channelId = message.channel.id;
   const mentioned = message.mentions.users.first();
@@ -174,9 +174,9 @@ async function execute(message, args) {
   if (!args.length) {
     return message.reply(
       "**⚔️ Battle Commands:**\n" +
-      "`c!battle @user` - Challenge a trainer (3v3)\n" +
-      "`c!battle ai` - Fight an AI trainer (3v3)\n" +
-      "`c!battle quit` - Forfeit the current battle\n"
+      `\`${prefix}battle @user\` - Challenge a trainer (3v3)\n` +
+      `\`${prefix}battle ai\` - Fight an AI trainer (3v3)\n` +
+      `\`${prefix}battle quit\` - Forfeit the current battle\n`
     );
   }
 
@@ -235,9 +235,9 @@ async function execute(message, args) {
   if (args[0].toLowerCase() === "ai" || args[0].toLowerCase() === "npc" || args[0].toLowerCase() === "cpu") {
     return startAIBattle(message, userId, channelId);
   }
-  if (!mentioned) return message.reply("Please mention a user to battle or use `c!battle ai`!");
-  if (mentioned.id === userId) return message.reply("You can't battle yourself! Try `c!battle ai` instead.");
-  if (mentioned.bot) return message.reply("You can't battle a bot! Try `c!battle ai` instead.");
+  if (!mentioned) return message.reply(`Please mention a user to battle or use \`${prefix}battle ai\`!`);
+  if (mentioned.id === userId) return message.reply(`You can't battle yourself! Try \`${prefix}battle ai\` instead.`);
+  if (mentioned.bot) return message.reply(`You can't battle a bot! Try \`${prefix}battle ai\` instead.`);
   if (activeBattles.has(channelId)) return message.reply("There's already a battle in this channel!");
 
   const user1 = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);

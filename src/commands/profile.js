@@ -3,13 +3,13 @@ const { pool } = require("../database");
 const { getPokemonById, getPokemonImage, getAllPokemon } = require("../data/pokemonLoader");
 const { capitalize, totalIV, getTypeEmoji } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const target = message.mentions.users.first() || message.author;
   const userId = target.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
   if (user.rows.length === 0) {
-    return message.reply(target.id === message.author.id ? "You haven't started yet! Use `c!start` to begin." : "That user hasn't started yet.");
+    return message.reply(target.id === message.author.id ? `You haven't started yet! Use \`${prefix}start\` to begin.` : "That user hasn't started yet.");
   }
 
   const u = user.rows[0];

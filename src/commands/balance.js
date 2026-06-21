@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require("discord.js");
 const { pool } = require("../database");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
   const result = await pool.query(
     `SELECT u.balance, 
@@ -12,7 +12,7 @@ async function execute(message, args) {
   );
 
   if (result.rows.length === 0) {
-    return message.reply("You haven't started yet! Use `c!start` to begin.");
+    return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
   }
 
   const { balance, pokemon_count, shiny_count } = result.rows[0];
@@ -40,7 +40,7 @@ async function execute(message, args) {
     )
     .setColor(tier.color)
     .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-    .setFooter({ text: "Earn Cybercoins: c!daily • c!battle • c!market sell" });
+    .setFooter({ text: `Earn Cybercoins: ${prefix}daily • ${prefix}battle • ${prefix}market sell` });
 
   message.channel.send({ embeds: [embed] });
 }

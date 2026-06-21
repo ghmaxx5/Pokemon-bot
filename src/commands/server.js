@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require("discord.js");
 const { pool } = require("../database");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   if (!message.member.permissions.has("ManageGuild")) {
     return message.reply("You need the **Manage Server** permission to use this command.");
   }
@@ -29,11 +29,11 @@ async function execute(message, args) {
         { name: "Spawn Channel(s)", value: spawnStr, inline: false },
       )
       .addFields({ name: "Commands", value:
-        "`c!server prefix <prefix>` — change prefix\n" +
-        "`c!server spawn add #channel` — add a spawn channel\n" +
-        "`c!server spawn remove #channel` — remove a spawn channel\n" +
-        "`c!server spawn list` — list all spawn channels\n" +
-        "`c!server spawn reset` — spawn in all channels (no redirect)"
+        `\`${prefix}server prefix <prefix>\` — change prefix\n` +
+        `\`${prefix}server spawn add #channel\` — add a spawn channel\n` +
+        `\`${prefix}server spawn remove #channel\` — remove a spawn channel\n` +
+        `\`${prefix}server spawn list\` — list all spawn channels\n` +
+        `\`${prefix}server spawn reset\` — spawn in all channels (no redirect)`
       })
       .setColor(0x3498db);
 
@@ -43,7 +43,7 @@ async function execute(message, args) {
   const subcommand = args[0].toLowerCase();
 
   if (subcommand === "prefix") {
-    if (!args[1]) return message.reply("Usage: `c!server prefix <new prefix>`");
+    if (!args[1]) return message.reply(`Usage: \`${prefix}server prefix <new prefix>\``);
     const newPrefix = args[1].substring(0, 10);
     await pool.query(
       `INSERT INTO server_config (guild_id, prefix) VALUES ($1, $2)
@@ -59,7 +59,7 @@ async function execute(message, args) {
 
     // ── add ──
     if (action === "add") {
-      if (!channel) return message.reply("Usage: `c!server spawn add #channel`");
+      if (!channel) return message.reply(`Usage: \`${prefix}server spawn add #channel\``);
       await pool.query(
         `INSERT INTO spawn_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [guildId, channel.id]
@@ -76,7 +76,7 @@ async function execute(message, args) {
 
     // ── remove ──
     if (action === "remove") {
-      if (!channel) return message.reply("Usage: `c!server spawn remove #channel`");
+      if (!channel) return message.reply(`Usage: \`${prefix}server spawn remove #channel\``);
       await pool.query(
         `DELETE FROM spawn_channels WHERE guild_id = $1 AND channel_id = $2`,
         [guildId, channel.id]
@@ -112,19 +112,19 @@ async function execute(message, args) {
         [guildId, channel.id]
       );
       await pool.query(`UPDATE server_config SET spawn_channel_id = NULL WHERE guild_id = $1`, [guildId]);
-      return message.reply(`✅ Added ${channel} as a spawn channel. Use \`c!server spawn add #channel\` to add more!`);
+      return message.reply(`✅ Added ${channel} as a spawn channel. Use \`${prefix}server spawn add #channel\` to add more!`);
     }
 
     return message.reply(
       "**Spawn channel commands:**\n" +
-      "`c!server spawn add #channel` — add spawn channel\n" +
-      "`c!server spawn remove #channel` — remove spawn channel\n" +
-      "`c!server spawn list` — list channels\n" +
-      "`c!server spawn reset` — spawn everywhere"
+      `\`${prefix}server spawn add #channel\` — add spawn channel\n` +
+      `\`${prefix}server spawn remove #channel\` — remove spawn channel\n` +
+      `\`${prefix}server spawn list\` — list channels\n` +
+      `\`${prefix}server spawn reset\` — spawn everywhere`
     );
   }
 
-  message.reply("Usage: `c!server prefix <prefix>` or `c!server spawn add/remove/list/reset`");
+  message.reply(`Usage: \`${prefix}server prefix <prefix>\` or \`${prefix}server spawn add/remove/list/reset\``);
 }
 
 module.exports = { name: "server", aliases: ["config", "settings"], description: "Configure server settings", execute };

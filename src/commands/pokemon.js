@@ -3,12 +3,12 @@ const { pool } = require("../database");
 const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize, totalIV } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
   if (user.rows.length === 0) {
-    return message.reply("You haven't started yet! Use `c!start` to begin.");
+    return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
   }
 
   let page = 1;

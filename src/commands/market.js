@@ -3,17 +3,17 @@ const { pool } = require("../database");
 const { getPokemonById, getPokemonImage } = require("../data/pokemonLoader");
 const { capitalize, totalIV } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (!args.length) {
-    return showListings(message, 1);
+    return showListings(message, 1, null, prefix);
   }
 
   const subcommand = args[0].toLowerCase();
 
   if (subcommand === "list" || subcommand === "add") {
-    if (args.length < 3) return message.reply("Usage: `c!market list <pokemon position> <price>`");
+    if (args.length < 3) return message.reply(`Usage: \`${prefix}market list <pokemon position> <price>\``);
     const position = parseInt(args[1]);
     const price = parseInt(args[2]);
 
@@ -49,7 +49,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "buy") {
-    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `c!market buy <listing id>`");
+    if (!args[1] || isNaN(args[1])) return message.reply(`Usage: \`${prefix}market buy <listing id>\``);
     const listingId = parseInt(args[1]);
 
     const client = await pool.connect();
@@ -87,7 +87,7 @@ async function execute(message, args) {
   }
 
   if (subcommand === "remove" || subcommand === "unlist") {
-    if (!args[1] || isNaN(args[1])) return message.reply("Usage: `c!market remove <listing id>`");
+    if (!args[1] || isNaN(args[1])) return message.reply(`Usage: \`${prefix}market remove <listing id>\``);
     const listingId = parseInt(args[1]);
 
     const listing = await pool.query("SELECT * FROM market_listings WHERE id = $1 AND seller_id = $2", [listingId, userId]);
@@ -99,17 +99,17 @@ async function execute(message, args) {
 
   if (subcommand === "search") {
     const query = args.slice(1).join(" ").toLowerCase();
-    return showListings(message, 1, query);
+    return showListings(message, 1, query, prefix);
   }
 
   if (!isNaN(subcommand)) {
-    return showListings(message, parseInt(subcommand));
+    return showListings(message, parseInt(subcommand), null, prefix);
   }
 
-  return showListings(message, 1);
+  return showListings(message, 1, null, prefix);
 }
 
-async function showListings(message, page = 1, search = null) {
+async function showListings(message, page = 1, search = null, prefix = "c!") {
   let query = `
     SELECT ml.id as listing_id, ml.price, ml.listed_at, ml.seller_id,
            p.id as pokemon_db_id, p.pokemon_id, p.nickname, p.level, p.shiny,
@@ -150,7 +150,7 @@ async function showListings(message, page = 1, search = null) {
   const embed = new EmbedBuilder()
     .setTitle("Pokemon Market")
     .setDescription(description)
-    .setFooter({ text: `Page ${page}/${totalPages} | ${listings.length} total listings | Use c!market buy <id> to purchase` })
+    .setFooter({ text: `Page ${page}/${totalPages} | ${listings.length} total listings | Use ${prefix}market buy <id> to purchase` })
     .setColor(0xf39c12);
 
   message.channel.send({ embeds: [embed] });

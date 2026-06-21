@@ -135,7 +135,7 @@ client.on("messageCreate", async (message) => {
       commands.get(commandName) || commands.get(aliases.get(commandName));
     if (!command) return;
 
-    await command.execute(message, args, spawns);
+    await command.execute(message, args, spawns, prefix);
   } catch (error) {
     console.error(`Error executing command:`, error);
     message
@@ -187,6 +187,7 @@ async function handleXP(message) {
 
 async function handleSpawning(message) {
   const guildId = message.guild.id;
+  const prefix = await getPrefix(guildId);
 
   // Count messages per GUILD — chatting in ANY channel counts toward spawn
   const guildCount = (messageCounts.get(guildId) || 0) + 1;
@@ -226,12 +227,12 @@ async function handleSpawning(message) {
     .setTitle(isEvent ? "🎊 A special Event Pokémon has appeared!" : "A wild Pokémon has appeared!")
     .setDescription(
       isEvent
-        ? `A rare **${displayName}** appeared during the **${pokemon.eventName || "Special Event"}**!\nType \`c!catch greninja\` to catch it!`
-        : "Guess the Pokémon and type `c!catch <n>` to catch it!"
+        ? `A rare **${displayName}** appeared during the **${pokemon.eventName || "Special Event"}**!\nType \`${prefix}catch greninja\` to catch it!`
+        : `Guess the Pokémon and type \`${prefix}catch <n>\` to catch it!`
     )
     .setImage(image)
     .setColor(isEvent ? 0xf72585 : 0xff6600)
-    .setFooter({ text: isEvent ? "🎨 Event spawn — extra rare!" : "Use c!hint for a hint!" });
+    .setFooter({ text: isEvent ? "🎨 Event spawn — extra rare!" : `Use ${prefix}hint for a hint!` });
 
   for (const ch of targetChannels) {
     // Each channel gets its OWN random pokemon
@@ -248,12 +249,12 @@ async function handleSpawning(message) {
       .setTitle(chIsEvent ? "🎊 A special Event Pokemon has appeared!" : "A wild Pokemon has appeared!")
       .setDescription(
         chIsEvent
-          ? `A rare **${chDisplayName}** appeared during the **${chPokemon.eventName || "Special Event"}**!\nType \`c!catch ${chPokemon.name.replace(/-/g, " ")}\` to catch it!`
-          : "Guess the Pokemon and type `c!catch <n>` to catch it!"
+          ? `A rare **${chDisplayName}** appeared during the **${chPokemon.eventName || "Special Event"}**!\nType \`${prefix}catch ${chPokemon.name.replace(/-/g, " ")}\` to catch it!`
+          : `Guess the Pokemon and type \`${prefix}catch <n>\` to catch it!`
       )
       .setImage(chImage)
       .setColor(chIsEvent ? 0xf72585 : 0xff6600)
-      .setFooter({ text: chIsEvent ? "🎨 Event spawn — extra rare!" : "Use c!hint for a hint!" });
+      .setFooter({ text: chIsEvent ? "🎨 Event spawn — extra rare!" : `Use ${prefix}hint for a hint!` });
 
     spawns.set(ch.id, { pokemonId: chPokemon.id, spawnedAt: Date.now() });
     ch.send({ embeds: [chEmbed] }).catch(() => {});

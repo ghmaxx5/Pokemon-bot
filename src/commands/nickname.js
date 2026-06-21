@@ -2,11 +2,11 @@ const { pool } = require("../database");
 const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (args.length < 1) {
-    return message.reply("Usage: `c!nickname <pokemon number> [new name]` or `c!nickname <pokemon number> reset`");
+    return message.reply(`Usage: \`${prefix}nickname <pokemon number> [new name]\` or \`${prefix}nickname <pokemon number> reset\``);
   }
 
   const position = parseInt(args[0]);

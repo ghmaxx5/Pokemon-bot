@@ -17,7 +17,7 @@ function getRegion(pokemonId) {
   return { name: "Paldea", gen: 9 };
 }
 
-async function buildEmbed(p, data, position, total) {
+async function buildEmbed(p, data, position, total, prefix) {
   const iv = totalIV({ hp: p.iv_hp, atk: p.iv_atk, def: p.iv_def, spatk: p.iv_spatk, spdef: p.iv_spdef, spd: p.iv_spd });
   const xpNeeded = xpForLevel(p.level);
   const shinyText = p.shiny ? "✨ " : "";
@@ -42,7 +42,7 @@ async function buildEmbed(p, data, position, total) {
   if (gmaxData) compatStr += `💍 **Gigantamax:** ${gmaxData.name}\n`;
 
   const equippedMoves = [p.move1, p.move2, p.move3, p.move4].filter(Boolean);
-  let moveStr = "No moves equipped — use `c!moves` to equip";
+  let moveStr = `No moves equipped — use \`${prefix}moves\` to equip`;
   if (equippedMoves.length > 0) {
     const available = getAvailableMoves(data.types, p.level, p.pokemon_id);
     moveStr = equippedMoves.map(name => {
@@ -112,11 +112,11 @@ function buildRow(position, total, pokemonDbId) {
   );
 }
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  if (user.rows.length === 0) return message.reply("You haven't started yet! Use `c!start` to begin.");
+  if (user.rows.length === 0) return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
 
   // Get full ordered list of user's pokemon IDs
   const allPokemon = await pool.query(
@@ -159,7 +159,7 @@ async function execute(message, args) {
   const initial = await fetchAndBuild(currentIndex);
   if (!initial) return message.reply("Pokémon not found in your collection.");
 
-  const embed = await buildEmbed(initial.p, initial.data, currentIndex + 1, total);
+  const embed = await buildEmbed(initial.p, initial.data, currentIndex + 1, total, prefix);
   const row = buildRow(currentIndex + 1, total, initial.dbId);
 
   const msg = await message.channel.send({ embeds: [embed], components: [row] });
@@ -179,7 +179,7 @@ async function execute(message, args) {
     const entry = await fetchAndBuild(currentIndex);
     if (!entry) { await interaction.deferUpdate(); return; }
 
-    const newEmbed = await buildEmbed(entry.p, entry.data, currentIndex + 1, total);
+    const newEmbed = await buildEmbed(entry.p, entry.data, currentIndex + 1, total, prefix);
     const newRow = buildRow(currentIndex + 1, total, entry.dbId);
     await interaction.update({ embeds: [newEmbed], components: [newRow] });
   });

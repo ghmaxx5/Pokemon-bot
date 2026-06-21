@@ -1,9 +1,9 @@
 const { pool } = require("../database");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
-  if (args.length < 2) return message.reply("Usage: `c!give @user <amount>`");
+  if (args.length < 2) return message.reply(`Usage: \`${prefix}give @user <amount>\``);
 
   const mentioned = message.mentions.users.first();
   if (!mentioned) return message.reply("Please mention a user!");

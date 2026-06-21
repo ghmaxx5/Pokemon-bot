@@ -139,9 +139,9 @@ function getCategory(power, moveName) {
   return "Physical";
 }
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   if (args.length === 0) {
-    return message.reply("Usage: `c!moveinfo <move name>`\nExample: `c!moveinfo Flamethrower`");
+    return message.reply(`Usage: \`${prefix}moveinfo <move name>\`\nExample: \`${prefix}moveinfo Flamethrower\``);
   }
 
   const moveName = args.join(" ");
@@ -176,7 +176,7 @@ async function execute(message, args) {
       ...(isEventMove ? [{ name: "Exclusive To", value: "🎨 Holi Spirit (Greninja) — Holi 2025 Event", inline: false }] : [])
     )
     .setColor(isEventMove ? 0xf72585 : getTypeColor(move.type))
-    .setFooter({ text: isEventMove ? "🎊 Holi Event 2025 Signature Move" : "Use c!moves to view and equip moves for your Pokémon" });
+    .setFooter({ text: isEventMove ? "🎊 Holi Event 2025 Signature Move" : `Use ${prefix}moves to view and equip moves for your Pokémon` });
 
   return message.channel.send({ embeds: [embed] });
 }

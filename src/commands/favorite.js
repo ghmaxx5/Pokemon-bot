@@ -2,11 +2,11 @@ const { pool } = require("../database");
 const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (!args.length || isNaN(args[0])) {
-    return message.reply("Usage: `c!favorite <pokemon id>`");
+    return message.reply(`Usage: \`${prefix}favorite <pokemon id>\``);
   }
 
   const pokemonDbId = parseInt(args[0]);

@@ -4,12 +4,12 @@ const { STARTER_REGIONS } = require("../data/starters");
 const { getPokemonImage } = require("../data/pokemonLoader");
 const { generateIVs, randomNature, totalIV } = require("../utils/helpers");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const existing = await pool.query("SELECT * FROM users WHERE user_id = $1", [userId]);
   if (existing.rows.length > 0 && existing.rows[0].started) {
-    return message.reply("You have already started your journey! Use `c!pokemon` to view your collection.");
+    return message.reply(`You have already started your journey! Use \`${prefix}pokemon\` to view your collection.`);
   }
 
   const embed = new EmbedBuilder()
@@ -107,7 +107,7 @@ async function execute(message, args) {
           `**Level:** 5\n**IV:** ${iv}%\n**Nature:** ${nature}\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
           `You also received **1,000** Cybercoins to start with!\n\n` +
-          `Use \`c!pokemon\` to view your collection.\nUse \`c!profile\` to see your trainer card.\nUse \`c!help\` to see all available commands.`
+          `Use \`${prefix}pokemon\` to view your collection.\nUse \`${prefix}profile\` to see your trainer card.\nUse \`${prefix}help\` to see all available commands.`
         )
         .setThumbnail(getPokemonImage(pokemonId))
         .setColor(0x2ecc71);
@@ -118,7 +118,7 @@ async function execute(message, args) {
 
   regionCollector.on("end", (collected) => {
     if (collected.size === 0) {
-      reply.edit({ components: [], content: "Starter selection timed out. Use `c!start` again." }).catch(() => {});
+      reply.edit({ components: [], content: `Starter selection timed out. Use \`${prefix}start\` again.` }).catch(() => {});
     }
   });
 }

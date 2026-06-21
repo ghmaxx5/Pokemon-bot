@@ -157,14 +157,15 @@ const PAGES = [
   }
 ];
 
-function buildEmbed(page, pageIndex) {
+function buildEmbed(page, pageIndex, prefix) {
   const embed = new EmbedBuilder()
     .setTitle(`📖 CyberDex Help  •  ${page.label}`)
     .setColor(page.color)
     .setFooter({ text: `Page ${pageIndex + 1} of ${PAGES.length}  •  Use the buttons to navigate` });
 
   for (const field of page.fields) {
-    embed.addFields({ name: field.name, value: field.value, inline: false });
+    const valueWithPrefix = field.value.replace(/c!/g, prefix);
+    embed.addFields({ name: field.name, value: valueWithPrefix, inline: false });
   }
   return embed;
 }
@@ -189,11 +190,11 @@ function buildRow(currentIndex) {
   );
 }
 
-async function execute(message) {
+async function execute(message, args, spawns, prefix) {
   let currentIndex = 0;
 
   const msg = await message.channel.send({
-    embeds: [buildEmbed(PAGES[0], 0)],
+    embeds: [buildEmbed(PAGES[0], 0, prefix)],
     components: [buildRow(0)]
   });
 
@@ -205,7 +206,7 @@ async function execute(message) {
   collector.on("collect", async i => {
     if (i.customId === "help_prev" && currentIndex > 0) currentIndex--;
     else if (i.customId === "help_next" && currentIndex < PAGES.length - 1) currentIndex++;
-    await i.update({ embeds: [buildEmbed(PAGES[currentIndex], currentIndex)], components: [buildRow(currentIndex)] });
+    await i.update({ embeds: [buildEmbed(PAGES[currentIndex], currentIndex, prefix)], components: [buildRow(currentIndex)] });
   });
 
   collector.on("end", async () => {

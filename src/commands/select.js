@@ -3,11 +3,11 @@ const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize } = require("../utils/helpers");
 const { getPokemonIdByPosition } = require("../utils/positionHelper");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (!args.length || isNaN(args[0])) {
-    return message.reply("Usage: `c!select <pokemon number>`");
+    return message.reply(`Usage: \`${prefix}select <pokemon number>\``);
   }
 
   const position = parseInt(args[0]);

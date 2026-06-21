@@ -290,7 +290,7 @@ function buildButtons(data, activeView) {
   return row;
 }
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (args.length === 0) {
@@ -303,7 +303,7 @@ async function execute(message, args) {
       .setDescription(
         `You've registered **${totalCaught}/${totalPokemon}** Pokémon in your Pokédex!\n\n` +
         `Completion: **${((totalCaught / totalPokemon) * 100).toFixed(1)}%**\n\n` +
-        `Use \`c!dex <name>\` to view a Pokémon entry.\nExample: \`c!dex charizard\``
+        `Use \`${prefix}dex <name>\` to view a Pokémon entry.\nExample: \`${prefix}dex charizard\``
       )
       .setColor(0xe74c3c);
 
@@ -327,13 +327,13 @@ async function execute(message, args) {
       const list = results.slice(0, 10).map(p => `#${p.id} ${capitalize(p.name)}`).join("\n");
       const embed = new EmbedBuilder()
         .setTitle("Multiple Pokémon Found")
-        .setDescription(`Did you mean one of these?\n\n${list}\n\nUse \`c!dex <exact name>\` to view one.`)
+        .setDescription(`Did you mean one of these?\n\n${list}\n\nUse \`${prefix}dex <exact name>\` to view one.`)
         .setColor(0xf39c12);
       return message.channel.send({ embeds: [embed] });
     }
   }
 
-  if (!data) return message.reply("That Pokémon doesn't exist! Use `c!dex <name>` (e.g. `c!dex pikachu`).");
+  if (!data) return message.reply(`That Pokémon doesn't exist! Use \`${prefix}dex <name>\` (e.g. \`${prefix}dex pikachu\`).`);
 
   const caught = await pool.query("SELECT 1 FROM pokedex WHERE user_id = $1 AND pokemon_id = $2", [userId, data.id]);
   const hasCaught = caught.rows.length > 0;

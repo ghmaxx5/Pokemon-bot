@@ -4,11 +4,11 @@ const { getPokemonById } = require("../data/pokemonLoader");
 const { capitalize, getTypeEmoji } = require("../utils/helpers");
 const { getAvailableMoves } = require("../data/learnsets");
 
-async function execute(message, args) {
+async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  if (user.rows.length === 0) return message.reply("You haven't started yet! Use `c!start` to begin.");
+  if (user.rows.length === 0) return message.reply(`You haven't started yet! Use \`${prefix}start\` to begin.`);
 
   let pokemonDbId;
   if (args.length > 0 && !isNaN(args[0])) {
@@ -20,7 +20,7 @@ async function execute(message, args) {
     pokemonDbId = user.rows[0].selected_pokemon_id;
   }
 
-  if (!pokemonDbId) return message.reply("Select a Pokemon first or specify a position! Use `c!select <number>`.");
+  if (!pokemonDbId) return message.reply(`Select a Pokemon first or specify a position! Use \`${prefix}select <number>\`.`);
 
   const result = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
   if (result.rows.length === 0) return message.reply("That Pokemon was not found in your collection.");
@@ -32,7 +32,7 @@ async function execute(message, args) {
   const pokeName = p.nickname || capitalize(data.name);
 
   if (args[0] === "set" || args[0] === "equip") {
-    return handleEquipMove(message, args, p, data, pokeName, userId);
+    return handleEquipMove(message, args, p, data, pokeName, userId, prefix);
   }
 
   const availableMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
@@ -57,12 +57,12 @@ async function execute(message, args) {
       `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
       `**Equipped Moves:**\n` +
-      formatEquippedMoves(equippedMoves, availableMoves, data.types) + "\n\n" +
+      formatEquippedMoves(equippedMoves, availableMoves, data.types, prefix) + "\n\n" +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `**All Available Moves:**\n${moveList}`
     )
     .setColor(0x3498db)
-    .setFooter({ text: "Use c!moves set <slot 1-4> <move name> to equip a move" });
+    .setFooter({ text: `Use ${prefix}moves set <slot 1-4> <move name> to equip a move` });
 
   if (availableMoves.length > 4) {
     const selectOptions = availableMoves.slice(0, 25).map((m, i) => ({
@@ -136,7 +136,7 @@ async function execute(message, args) {
           `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
           `**Equipped Moves:**\n` +
-          formatEquippedMoves(updatedSlots, availableMoves, data.types) + "\n\n" +
+          formatEquippedMoves(updatedSlots, availableMoves, data.types, prefix) + "\n\n" +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
           `**All Available Moves:**\n${moveList}`
         );
@@ -165,7 +165,7 @@ async function execute(message, args) {
           `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
           `**Equipped Moves:**\n` +
-          formatEquippedMoves(updatedSlots, availableMoves, data.types) + "\n\n" +
+          formatEquippedMoves(updatedSlots, availableMoves, data.types, prefix) + "\n\n" +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
           `**All Available Moves:**\n${moveList}`
         );
@@ -188,9 +188,9 @@ async function execute(message, args) {
   }
 }
 
-async function handleEquipMove(message, args, p, data, pokeName, userId) {
+async function handleEquipMove(message, args, p, data, pokeName, userId, prefix) {
   if (args.length < 3) {
-    return message.reply("Usage: `c!moves set <slot 1-4> <move name>`\nExample: `c!moves set 1 Flamethrower`");
+    return message.reply(`Usage: \`${prefix}moves set <slot 1-4> <move name>\`\nExample: \`${prefix}moves set 1 Flamethrower\``);
   }
 
   const slot = parseInt(args[1]);
@@ -203,7 +203,7 @@ async function handleEquipMove(message, args, p, data, pokeName, userId) {
   const move = availableMoves.find(m => m.name.toLowerCase() === moveName.toLowerCase());
 
   if (!move) {
-    return message.reply(`**${moveName}** is not available for this Pokemon at level ${p.level}! Use \`c!moves\` to see available moves.`);
+    return message.reply(`**${moveName}** is not available for this Pokemon at level ${p.level}! Use \`${prefix}moves\` to see available moves.`);
   }
 
   const slotCol = `move${slot}`;
@@ -213,8 +213,8 @@ async function handleEquipMove(message, args, p, data, pokeName, userId) {
   return message.reply(`${emoji} **${pokeName}** learned **${move.name}** in slot ${slot}! (${capitalize(move.type)} | Power: ${move.power} | Acc: ${move.accuracy}%)`);
 }
 
-function formatEquippedMoves(equippedNames, availableMoves, types) {
-  if (equippedNames.length === 0) return "No moves equipped yet! Use `c!moves set <slot> <move>` to equip moves.";
+function formatEquippedMoves(equippedNames, availableMoves, types, prefix) {
+  if (equippedNames.length === 0) return `No moves equipped yet! Use \`${prefix}moves set <slot> <move>\` to equip moves.`;
 
   let text = "";
   for (let i = 0; i < 4; i++) {
