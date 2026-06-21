@@ -164,6 +164,24 @@ client.on("messageCreate", async (message) => {
     await handleXP(message);
     await handleSpawning(message);
 
+    const contentLower = message.content.toLowerCase().trim();
+    if (/^(r|are)\s+we\s+de(d|ad)\??$/i.test(contentLower)) {
+      const responses = [
+        "Yes, we are ded. Totally ded — all of us are dead! 💀",
+        "Totally ded. No heartbeat, no nothing. We are completely dead! 🪦",
+        "Yup, we are absolutely dead. All of us. Dead as a doornail! 💀",
+        "Yes we are ded totally ded - all of us are dead! ☠️",
+        "We are 100% dead. RIP to all of us. 💀",
+        "Dead. Gone. Ceased to exist. All of us. 🪦"
+      ];
+      const response = responses[Math.floor(Math.random() * responses.length)];
+      message.channel.sendTyping().catch(() => {});
+      setTimeout(() => {
+        message.reply(response).catch(() => {});
+      }, 1500);
+      return;
+    }
+
     const prefix = await getPrefix(message.guild.id);
     if (!message.content.toLowerCase().startsWith(prefix.toLowerCase())) return;
 
