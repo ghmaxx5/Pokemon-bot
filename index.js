@@ -213,9 +213,12 @@ client.on("messageCreate", async (message) => {
     if (banCheck.rows.length > 0 && banCheck.rows[0].banned) {
       const reason = banCheck.rows[0].ban_reason || "No reason specified.";
       const banEmbed = new EmbedBuilder()
-        .setTitle("You have been banned from using Cybermon.")
-        .setDescription("You are banned from using the bot. If you believe this is a mistake, you can contact an administrator.")
-        .addFields({ name: "Reason", value: reason })
+        .setTitle("Account Suspended")
+        .setDescription("Your account was found to be in violation of the Cybermon Terms of Service and has been blacklisted from Cybermon.")
+        .addFields(
+          { name: "Reason", value: reason },
+          { name: "Appeals", value: "If, after reading and understanding the reason provided above, you believe your account was suspended in error, and that you did not violate the Terms of Service, you may submit a Bot Suspension Appeal to request a re-review of your case." }
+        )
         .setColor(0xff3333);
       
       message.reply({ embeds: [banEmbed] }).catch(() => {});
