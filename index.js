@@ -165,20 +165,26 @@ client.on("messageCreate", async (message) => {
     await handleSpawning(message);
 
     const contentLower = message.content.toLowerCase().trim();
-    if (/^(r|are)\s+we\s+de(d|ad)\??$/i.test(contentLower)) {
+    if (/^(r|are)\s+we\s+de(d|ad)[\s\?\!\.]*$/i.test(contentLower)) {
       const responses = [
         "Yes, we are ded. Totally ded — all of us are dead! 💀",
         "Totally ded. No heartbeat, no nothing. We are completely dead! 🪦",
         "Yup, we are absolutely dead. All of us. Dead as a doornail! 💀",
         "Yes we are ded totally ded - all of us are dead! ☠️",
         "We are 100% dead. RIP to all of us. 💀",
-        "Dead. Gone. Ceased to exist. All of us. 🪦"
+        "Dead. Gone. Ceased to exist. All of us. 🪦",
+        "yes we are ded totally ded - all of us are dead!",
+        "bro we are so ded. dead as hell. all of us.",
+        "honestly... yeah. we are ded. completely ded. 🪦",
+        "pretty sure we are dead. 100% ded.",
+        "yeah, RIP. we ded"
       ];
       const response = responses[Math.floor(Math.random() * responses.length)];
       message.channel.sendTyping().catch(() => {});
+      const delay = 1000 + Math.floor(Math.random() * 1500); // 1.0s to 2.5s dynamic delay
       setTimeout(() => {
         message.reply(response).catch(() => {});
-      }, 1500);
+      }, delay);
       return;
     }
 
