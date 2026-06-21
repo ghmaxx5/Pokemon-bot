@@ -66,9 +66,15 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
   ],
 });
+const { handleAdminRequest } = require("./src/utils/adminServer");
 http.createServer((req, res) => {
-  res.write("Cybermon is alive!");
-  res.end();
+  if (req.url.startsWith("/admin") || req.url.startsWith("/api/admin")) {
+    handleAdminRequest(req, res, client);
+  } else {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.write("Cybermon is alive!");
+    res.end();
+  }
 }).listen(8080);
 
 const commands = new Collection();
@@ -198,6 +204,23 @@ client.on("messageCreate", async (message) => {
     const command =
       commands.get(commandName) || commands.get(aliases.get(commandName));
     if (!command) return;
+
+    // Check if the user is banned
+    const banCheck = await pool.query(
+      "SELECT banned, ban_reason FROM users WHERE user_id = $1",
+      [message.author.id]
+    );
+    if (banCheck.rows.length > 0 && banCheck.rows[0].banned) {
+      const reason = banCheck.rows[0].ban_reason || "No reason specified.";
+      const banEmbed = new EmbedBuilder()
+        .setTitle("You have been banned from using Cybermon.")
+        .setDescription("You are banned from using the bot. If you believe this is a mistake, you can contact an administrator.")
+        .addFields({ name: "Reason", value: reason })
+        .setColor(0xff3333);
+      
+      message.reply({ embeds: [banEmbed] }).catch(() => {});
+      return;
+    }
 
     await asyncLocalStorage.run({ requester: message.author }, async () => {
       await command.execute(message, args, spawns, prefix);

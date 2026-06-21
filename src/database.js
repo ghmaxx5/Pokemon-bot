@@ -19,7 +19,10 @@ async function initDatabase() {
         balance INTEGER DEFAULT 0,
         last_daily TIMESTAMPTZ,
         next_breed_at TIMESTAMPTZ,
-        created_at TIMESTAMPTZ DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        banned BOOLEAN DEFAULT FALSE,
+        ban_reason TEXT DEFAULT NULL,
+        banned_at TIMESTAMPTZ DEFAULT NULL
       );
 
       CREATE TABLE IF NOT EXISTS pokemon (
@@ -121,6 +124,10 @@ async function initDatabase() {
       ALTER TABLE pokemon ADD COLUMN IF NOT EXISTS move2 TEXT DEFAULT NULL;
       ALTER TABLE pokemon ADD COLUMN IF NOT EXISTS move3 TEXT DEFAULT NULL;
       ALTER TABLE pokemon ADD COLUMN IF NOT EXISTS move4 TEXT DEFAULT NULL;
+
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS banned BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS ban_reason TEXT DEFAULT NULL;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ DEFAULT NULL;
 
       CREATE TABLE IF NOT EXISTS spawn_channels (
         guild_id TEXT NOT NULL,
