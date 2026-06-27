@@ -23,4 +23,4 @@ jobs:
 
       - name: Push to Hugging Face
         run: |
-          git push --force https://ghmaxx5:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/ghmaxx5/cybermon main
+          git push --force https://ghmax5:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/ghmax5/cybermon main
