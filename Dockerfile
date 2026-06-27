@@ -7,19 +7,18 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Set up user with UID 1000 for Hugging Face security guidelines
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+# Set user to 'node' which has UID 1000 by default in the node base image
+USER node
+ENV HOME=/home/node \
+    PATH=/home/node/.local/bin:$PATH
 
 WORKDIR $HOME/app
 
-COPY --chown=user package*.json ./
+COPY --chown=node package*.json ./
 
 RUN npm install
 
-COPY --chown=user . .
+COPY --chown=node . .
 
 ENV PORT=7860
 EXPOSE 7860
