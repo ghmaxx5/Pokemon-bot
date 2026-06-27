@@ -58,6 +58,18 @@ const {
 const { xpForLevel, capitalize, getTypeEmoji } = require("./src/utils/helpers");
 const { getNewMovesAtLevel } = require("./src/data/learnsets");
 
+// Increase undici connect timeout to handle network lag in virtualized containers
+const undici = require("undici");
+try {
+  undici.setGlobalDispatcher(new undici.Agent({
+    connect: {
+      timeout: 30000
+    }
+  }));
+} catch (e) {
+  console.warn("Could not set global undici dispatcher:", e);
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -65,6 +77,9 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
   ],
+  rest: {
+    timeout: 60000
+  }
 });
 const { handleAdminRequest } = require("./src/utils/adminServer");
 http.createServer((req, res) => {
