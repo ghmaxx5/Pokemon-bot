@@ -360,4 +360,27 @@ async function handleSpawning(message) {
 }
 
 
-client.login(process.env.TOKEN);
+// Global error handling to prevent crashes from transient network timeouts
+process.on("unhandledRejection", (error) => {
+  console.error("Unhandled Promise Rejection:", error);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+});
+
+async function startBot() {
+  try {
+    if (!process.env.TOKEN) {
+      console.error("Error: TOKEN environment variable is missing!");
+      process.exit(1);
+    }
+    await client.login(process.env.TOKEN);
+  } catch (error) {
+    console.error("Failed to login to Discord:", error);
+    console.log("Retrying connection in 10 seconds...");
+    setTimeout(startBot, 10000);
+  }
+}
+
+startBot();
