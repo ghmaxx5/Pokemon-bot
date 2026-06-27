@@ -75,7 +75,7 @@ http.createServer((req, res) => {
     res.write("<h3>Cybermon is alive!</h3>The Admin Panel is located at <a href='/admin'>/admin</a>");
     res.end();
   }
-}).listen(8080);
+}).listen(process.env.PORT || 7860);
 
 const commands = new Collection();
 const aliases = new Collection();

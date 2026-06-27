@@ -1,3 +1,12 @@
+---
+title: Cybermon
+emoji: 👾
+colorFrom: purple
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # 🎮 Cybermon
 
 > A feature-rich Pokémon Discord bot inspired by Pokétwo — catch, battle, trade, and collect Pokémon right inside your Discord server.
