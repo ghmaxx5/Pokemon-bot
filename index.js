@@ -1,3 +1,10 @@
+const dns = require("dns");
+try {
+  dns.setDefaultResultOrder("ipv4first");
+} catch (e) {
+  console.warn("Could not set default DNS result order:", e);
+}
+
 const { AsyncLocalStorage } = require("async_hooks");
 const asyncLocalStorage = new AsyncLocalStorage();
 global.asyncLocalStorage = asyncLocalStorage;
