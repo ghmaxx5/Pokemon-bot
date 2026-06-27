@@ -14,8 +14,13 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Push to Hugging Face
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      - name: Verify Secret
         run: |
-          git push --force https://ghmaxx5:$HF_TOKEN@huggingface.co/spaces/ghmaxx5/cybermon main
+          if [ -z "${{ secrets.HF_TOKEN }}" ]; then
+            echo "::error::HF_TOKEN secret is missing! Please go to Settings -> Secrets and variables -> Actions and add 'HF_TOKEN' with your Hugging Face write token."
+            exit 1
+          fi
+
+      - name: Push to Hugging Face
+        run: |
+          git push --force https://ghmaxx5:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/ghmaxx5/cybermon main
