@@ -89,10 +89,21 @@ async function execute(message, args, spawns, prefix) {
   }
 
   if (subcommand === "use") {
-    if (args.length < 2) return message.reply(`Usage: \`${prefix}shop use <item name> [pokemon id]\``);
+    if (args.length < 2) return message.reply(`Usage: \`${prefix}shop use <item name> [pokemon number]\``);
 
     const itemName = args.slice(1).filter(a => isNaN(a)).join("_").toLowerCase().replace(/\s+/g, "_");
-    const pokemonDbId = args.find(a => !isNaN(a) && a !== args[0]) ? parseInt(args.find(a => !isNaN(a) && a !== args[0])) : user.rows[0].selected_pokemon_id;
+    
+    const posVal = args.find(a => !isNaN(a) && a !== args[0]);
+    const { getPokemonIdByPosition } = require("../utils/positionHelper");
+    let pokemonDbId;
+    if (posVal) {
+      const position = parseInt(posVal);
+      pokemonDbId = await getPokemonIdByPosition(userId, position);
+      if (!pokemonDbId) return message.reply("That Pokemon was not found in your collection.");
+    } else {
+      pokemonDbId = user.rows[0].selected_pokemon_id;
+    }
+
     const item = Object.values(SHOP_ITEMS).find(i =>
       i.id === itemName || i.name.toLowerCase().replace(/\s+/g, "_") === itemName || i.name.toLowerCase() === args.slice(1).filter(a => isNaN(a)).join(" ").toLowerCase()
     );
@@ -195,8 +206,12 @@ async function execute(message, args, spawns, prefix) {
   if (subcommand === "hold") {
     if (args.length < 3) return message.reply(`Usage: \`${prefix}shop hold <item> <pokemon number>\`\nItems: \`mega stone\`, \`gmax ring\`\nUse the number shown in your Pokemon list.`);
 
-    const pokemonDbId = parseInt(args[args.length - 1]);
-    if (isNaN(pokemonDbId)) return message.reply("Please provide a valid Pokemon number at the end (shown in your Pokemon list).");
+    const position = parseInt(args[args.length - 1]);
+    if (isNaN(position)) return message.reply("Please provide a valid Pokemon number at the end (shown in your Pokemon list).");
+    
+    const { getPokemonIdByPosition } = require("../utils/positionHelper");
+    const pokemonDbId = await getPokemonIdByPosition(userId, position);
+    if (!pokemonDbId) return message.reply("That Pokemon was not found in your collection.");
 
     const rawItemName = args.slice(1, -1).join(" ").toLowerCase().trim();
     const HOLD_ALIASES = {
@@ -241,7 +256,11 @@ async function execute(message, args, spawns, prefix) {
 
   if (subcommand === "unhold") {
     if (!args[1] || isNaN(args[1])) return message.reply(`Usage: \`${prefix}shop unhold <pokemon number>\`\nUse the number shown in your Pokemon list.`);
-    const pokemonDbId = parseInt(args[1]);
+    const position = parseInt(args[1]);
+    
+    const { getPokemonIdByPosition } = require("../utils/positionHelper");
+    const pokemonDbId = await getPokemonIdByPosition(userId, position);
+    if (!pokemonDbId) return message.reply("That Pokemon was not found in your collection.");
 
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
     if (poke.rows.length === 0) return message.reply("Pokemon not found.");

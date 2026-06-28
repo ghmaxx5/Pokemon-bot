@@ -1382,18 +1382,42 @@ async function endBattle(interaction, battle, channelId, attacker, defender, isP
   if (!isAIWin) {
     await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [reward, winner]);
     const winnerTeam = isP1Turn ? battle.p1Team : battle.p2Team;
+    const { levelUpPokemon } = require("../utils/levelUpHelper");
+    const { xpForLevel } = require("../utils/helpers");
     for (const p of winnerTeam) {
       if (p.id > 0) {
-        await pool.query("UPDATE pokemon SET xp = xp + $1 WHERE id = $2", [xpGain, p.id]);
+        const updateResult = await pool.query(
+          "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
+          [xpGain, p.id]
+        );
+        if (updateResult.rows.length > 0) {
+          const updatedPoke = updateResult.rows[0];
+          const xpNeeded = xpForLevel(updatedPoke.level);
+          if (updatedPoke.xp >= xpNeeded && updatedPoke.level < 100) {
+            await levelUpPokemon(winner, p.id, 1, message.channel);
+          }
+        }
       }
     }
   }
   if (!isAILoss && !isAIWin) {
     const xpLoser = Math.floor(xpGain / 3);
     const loserTeam = isP1Turn ? battle.p2Team : battle.p1Team;
+    const { levelUpPokemon } = require("../utils/levelUpHelper");
+    const { xpForLevel } = require("../utils/helpers");
     for (const p of loserTeam) {
       if (p.id > 0) {
-        await pool.query("UPDATE pokemon SET xp = xp + $1 WHERE id = $2", [xpLoser, p.id]);
+        const updateResult = await pool.query(
+          "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
+          [xpLoser, p.id]
+        );
+        if (updateResult.rows.length > 0) {
+          const updatedPoke = updateResult.rows[0];
+          const xpNeeded = xpForLevel(updatedPoke.level);
+          if (updatedPoke.xp >= xpNeeded && updatedPoke.level < 100) {
+            await levelUpPokemon(loser, p.id, 1, message.channel);
+          }
+        }
       }
     }
   }
