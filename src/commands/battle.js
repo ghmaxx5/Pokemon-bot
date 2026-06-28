@@ -306,7 +306,7 @@ async function execute(message, args, spawns, prefix) {
 
     if (interaction.customId === "battle_accept") {
       await interaction.update({
-        embeds: [new EmbedBuilder().setTitle("⚔️ Challenge Accepted!").setDescription("Both trainers: check your DMs to select your team!").setColor(0x2ecc71)],
+        embeds: [new EmbedBuilder().setTitle("⚔️ Challenge Accepted!").setDescription("Both trainers: select your team below!").setColor(0x2ecc71)],
         components: []
       });
 
@@ -328,15 +328,7 @@ async function execute(message, args, spawns, prefix) {
 }
 
 async function collectTeamSelection(message, battle, playerId, pokemonRows, selectionKey, label) {
-  let targetChannel = message.channel;
-  try {
-    const userObj = await message.client.users.fetch(playerId);
-    const dm = await userObj.createDM();
-    targetChannel = dm;
-  } catch (err) {
-    // fallback to public channel if DMs are closed
-  }
-
+  const channel = message.channel;
   const maxPicks = Math.min(3, pokemonRows.length);
 
   const options = pokemonRows.slice(0, 15).map((p, i) => {
@@ -382,7 +374,7 @@ async function collectTeamSelection(message, battle, playerId, pokemonRows, sele
     buttonRows.push(row);
   }
 
-  const selectMsg = await targetChannel.send({ content: `<@${playerId}>`, embeds: [embed], components: buttonRows });
+  const selectMsg = await channel.send({ content: `<@${playerId}>`, embeds: [embed], components: buttonRows });
 
   return new Promise((resolve) => {
     const selected = [];
