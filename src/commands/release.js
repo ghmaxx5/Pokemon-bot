@@ -10,15 +10,30 @@ async function execute(message, args, spawns, prefix) {
     return message.reply(`Usage: \`${prefix}release <pokemon id>\``);
   }
 
-  const pokemonDbId = parseInt(args[0]);
-  const result = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+  const position = parseInt(args[0]);
+  const { getPokemonIdByPosition } = require("../utils/positionHelper");
+  const pokemonDbId = await getPokemonIdByPosition(userId, position);
+  if (!pokemonDbId) {
+    return message.reply("That Pokemon was not found in your collection.");
+  }
 
+  const result = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
   if (result.rows.length === 0) {
     return message.reply("That Pokemon was not found in your collection.");
   }
 
   if (result.rows[0].favorite) {
     return message.reply("You cannot release a favorited Pokemon! Unfavorite it first.");
+  }
+
+  const marketCheck = await pool.query("SELECT 1 FROM market_listings WHERE pokemon_db_id = $1", [pokemonDbId]);
+  if (marketCheck.rows.length > 0) {
+    return message.reply("You cannot release a Pokemon that is listed on the market! Unlist it first.");
+  }
+
+  const { isPokemonInActiveTrade } = require("./trade");
+  if (isPokemonInActiveTrade(pokemonDbId)) {
+    return message.reply("You cannot release a Pokemon that is currently in an active trade!");
   }
 
   const user = await pool.query("SELECT selected_pokemon_id FROM users WHERE user_id = $1", [userId]);
