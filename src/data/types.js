@@ -21,8 +21,11 @@ const TYPE_EFFECTIVENESS = {
 
 function getEffectiveness(attackType, defenseTypes) {
   let multiplier = 1;
+  const atk = attackType ? attackType.toLowerCase() : "normal";
   for (const defType of defenseTypes) {
-    const eff = TYPE_EFFECTIVENESS[attackType]?.[defType];
+    if (!defType) continue;
+    const def = defType.toLowerCase();
+    const eff = TYPE_EFFECTIVENESS[atk]?.[def];
     if (eff !== undefined) multiplier *= eff;
   }
   return multiplier;

@@ -328,7 +328,15 @@ async function execute(message, args, spawns, prefix) {
 }
 
 async function collectTeamSelection(message, battle, playerId, pokemonRows, selectionKey, label) {
-  const channel = message.channel;
+  let targetChannel = message.channel;
+  try {
+    const userObj = await message.client.users.fetch(playerId);
+    const dm = await userObj.createDM();
+    targetChannel = dm;
+  } catch (err) {
+    // fallback to public channel if DMs are closed
+  }
+
   const maxPicks = Math.min(3, pokemonRows.length);
 
   const options = pokemonRows.slice(0, 15).map((p, i) => {
@@ -374,7 +382,7 @@ async function collectTeamSelection(message, battle, playerId, pokemonRows, sele
     buttonRows.push(row);
   }
 
-  const selectMsg = await channel.send({ content: `<@${playerId}>`, embeds: [embed], components: buttonRows });
+  const selectMsg = await targetChannel.send({ content: `<@${playerId}>`, embeds: [embed], components: buttonRows });
 
   return new Promise((resolve) => {
     const selected = [];
