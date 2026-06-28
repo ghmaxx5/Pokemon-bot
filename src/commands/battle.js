@@ -426,7 +426,7 @@ async function collectTeamSelection(message, battle, playerId, pokemonRows, sele
         battle[selectionKey] = selected;
         selectMsg.edit({
           embeds: [new EmbedBuilder()
-            .setTitle("⏰ Time's Uc!")
+            .setTitle("⏰ Time's Up!")
             .setDescription(`<@${playerId}>'s team was auto-completed.`)
             .setColor(0xe67e22)],
           components: []
@@ -575,7 +575,7 @@ async function startAIBattle(message, userId, channelId) {
       `Select your team of 3 Pokemon to battle!`
     )
     .setColor(0x9b59b6)
-    .setFooter({ text: "3v3 Battle — Same rules as Pvc!" });
+    .setFooter({ text: "3v3 Battle — Same rules as PvP!" });
 
   await message.channel.send({ embeds: [challengeEmbed] });
 

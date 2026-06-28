@@ -5,6 +5,21 @@ const { capitalize, getTypeEmoji } = require("./helpers");
 const { getNewMovesAtLevel } = require("../data/learnsets");
 
 async function levelUpPokemon(userId, pokemonDbId, levelsToAdd, messageChannel) {
+  let prefix = "c!";
+  if (messageChannel && messageChannel.guild) {
+    try {
+      const prefixResult = await pool.query(
+        "SELECT prefix FROM server_config WHERE guild_id = $1",
+        [messageChannel.guild.id]
+      );
+      if (prefixResult.rows.length > 0) {
+        prefix = prefixResult.rows[0].prefix;
+      }
+    } catch (err) {
+      // fallback to c!
+    }
+  }
+
   const result = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
   if (result.rows.length === 0) return null;
 
@@ -41,11 +56,11 @@ async function levelUpPokemon(userId, pokemonDbId, levelsToAdd, messageChannel) 
             `${getTypeEmoji(m.type)} **${m.name}** (${capitalize(m.type)} | Pow: ${m.power} | Acc: ${m.accuracy}%)`,
         )
         .join("\n") +
-      "\n\nUse `c!moves` to view and equip moves!";
+      `\n\nUse \`${prefix}moves\` to view and equip moves!`;
   }
 
   const embed = new EmbedBuilder()
-    .setTitle("Level Uc!")
+    .setTitle("Level Up!")
     .setDescription(
       `Your ${p.shiny ? "✨ " : ""}**${originalName}** grew to **Level ${newLevel}**!${moveText}`,
     )
