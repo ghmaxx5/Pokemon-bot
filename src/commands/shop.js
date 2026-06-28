@@ -36,36 +36,58 @@ async function execute(message, args, spawns, prefix) {
 
     if (!item) return message.reply(`Item not found! Use \`${prefix}shop\` to see available items.`);
 
-    const totalCost = item.price * quantity;
-    if (user.rows[0].balance < totalCost) {
-      return message.reply(`You need **${totalCost.toLocaleString()}** Cybercoins (${quantity}x ${item.name}) but only have **${user.rows[0].balance.toLocaleString()}**!`);
-    }
-
-    if (item.id === "rare_candy" && quantity > 1) {
-      const selectedId = user.rows[0].selected_pokemon_id;
-      if (!selectedId) return message.reply(`Select a Pokemon first to use Rare Candies! Use \`${prefix}select <id>\`.`);
-
-      const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [selectedId, userId]);
-      if (poke.rows.length === 0) return message.reply("Selected Pokemon not found.");
-      if (poke.rows[0].level >= 100) return message.reply("That Pokemon is already max level!");
-
-      const currentLevel = poke.rows[0].level;
-      const levelsToAdd = Math.min(quantity, 100 - currentLevel);
-      const actualCost = item.price * levelsToAdd;
-
-      if (user.rows[0].balance < actualCost) {
-        return message.reply(`You need **${actualCost.toLocaleString()}** Cybercoins for ${levelsToAdd} Rare Candies but only have **${user.rows[0].balance.toLocaleString()}**!`);
-      }
-
-      await pool.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [actualCost, userId]);
-      const { levelUpPokemon } = require("../utils/levelUpHelper");
-      await levelUpPokemon(userId, selectedId, levelsToAdd, message.channel);
-      return;
-    }
-
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      const lockUser = await client.query("SELECT balance, selected_pokemon_id FROM users WHERE user_id = $1 AND started = TRUE FOR UPDATE", [userId]);
+      if (lockUser.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return message.reply("You haven't started yet!");
+      }
+      const userBalance = lockUser.rows[0].balance;
+
+      const totalCost = item.price * quantity;
+
+      if (item.id === "rare_candy" && quantity > 1) {
+        const selectedId = lockUser.rows[0].selected_pokemon_id;
+        if (!selectedId) {
+          await client.query("ROLLBACK");
+          return message.reply(`Select a Pokemon first to use Rare Candies! Use \`${prefix}select <id>\`.`);
+        }
+
+        const poke = await client.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2 FOR UPDATE", [selectedId, userId]);
+        if (poke.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return message.reply("Selected Pokemon not found.");
+        }
+        if (poke.rows[0].level >= 100) {
+          await client.query("ROLLBACK");
+          return message.reply("That Pokemon is already max level!");
+        }
+
+        const currentLevel = poke.rows[0].level;
+        const levelsToAdd = Math.min(quantity, 100 - currentLevel);
+        const actualCost = item.price * levelsToAdd;
+
+        if (userBalance < actualCost) {
+          await client.query("ROLLBACK");
+          return message.reply(`You need **${actualCost.toLocaleString()}** Cybercoins for ${levelsToAdd} Rare Candies but only have **${userBalance.toLocaleString()}**!`);
+        }
+
+        await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [actualCost, userId]);
+        await client.query("COMMIT");
+
+        const { levelUpPokemon } = require("../utils/levelUpHelper");
+        await levelUpPokemon(userId, selectedId, levelsToAdd, message.channel);
+        return;
+      }
+
+      if (userBalance < totalCost) {
+        await client.query("ROLLBACK");
+        return message.reply(`You need **${totalCost.toLocaleString()}** Cybercoins (${quantity}x ${item.name}) but only have **${userBalance.toLocaleString()}**!`);
+      }
+
       await client.query("UPDATE users SET balance = balance - $1 WHERE user_id = $2", [totalCost, userId]);
       await client.query(
         `INSERT INTO user_inventory (user_id, item_id, quantity) VALUES ($1, $2, $3)
@@ -76,7 +98,7 @@ async function execute(message, args, spawns, prefix) {
 
       const embed = new EmbedBuilder()
         .setTitle(`${item.emoji} Item Purchased!`)
-        .setDescription(`You bought **${quantity}x ${item.name}** for **${totalCost.toLocaleString()}** Cybercoins!\n\nNew balance: **${(user.rows[0].balance - totalCost).toLocaleString()}** Cybercoins`)
+        .setDescription(`You bought **${quantity}x ${item.name}** for **${totalCost.toLocaleString()}** Cybercoins!\n\nNew balance: **${(userBalance - totalCost).toLocaleString()}** Cybercoins`)
         .setColor(0x2ecc71);
 
       return message.channel.send({ embeds: [embed] });
