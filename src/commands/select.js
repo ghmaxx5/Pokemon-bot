@@ -17,6 +17,19 @@ async function execute(message, args, spawns, prefix) {
   }
 
   const result = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
+  if (result.rows.length === 0) {
+    return message.reply("That Pokemon was not found in your collection.");
+  }
+
+  const marketCheck = await pool.query("SELECT 1 FROM market_listings WHERE pokemon_db_id = $1", [pokemonDbId]);
+  if (marketCheck.rows.length > 0) {
+    return message.reply("You can't select a Pokemon that is listed on the market! Unlist it first.");
+  }
+
+  const { isPokemonInActiveTrade } = require("./trade");
+  if (isPokemonInActiveTrade(pokemonDbId)) {
+    return message.reply("You can't select a Pokemon that is currently in an active trade!");
+  }
 
   await pool.query("UPDATE users SET selected_pokemon_id = $1 WHERE user_id = $2", [pokemonDbId, userId]);
 

@@ -9,7 +9,7 @@ async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
 
   if (!args.length) {
-    return message.reply(`Usage:\n\`${prefix}trade @user\` - Start a trade\n\`${prefix}trade add <pokemon id>\` - Add Pokemon to trade\n\`${prefix}trade remove <pokemon id>\` - Remove Pokemon from trade\n\`${prefix}trade confirm\` - Confirm the trade\n\`${prefix}trade cancel\` - Cancel the trade`);
+    return message.reply(`Usage:\n\`${prefix}trade @user\` - Start a trade\n\`${prefix}trade add <pokemon position>\` - Add Pokemon to trade\n\`${prefix}trade remove <pokemon position>\` - Remove Pokemon from trade\n\`${prefix}trade confirm\` - Confirm the trade\n\`${prefix}trade cancel\` - Cancel the trade`);
   }
 
   const subcommand = args[0].toLowerCase();
@@ -41,6 +41,9 @@ async function execute(message, args, spawns, prefix) {
     const poke = await pool.query("SELECT * FROM pokemon WHERE id = $1 AND user_id = $2", [pokemonDbId, userId]);
     if (poke.rows.length === 0) return message.reply("You don't own that Pokemon.");
     if (poke.rows[0].favorite) return message.reply("You can't trade a favorited Pokemon!");
+
+    const marketCheck = await pool.query("SELECT 1 FROM market_listings WHERE pokemon_db_id = $1", [pokemonDbId]);
+    if (marketCheck.rows.length > 0) return message.reply("You can't trade a Pokemon that is listed on the market! Unlist it first.");
 
     const side = trade.user1 === userId ? trade.offers1 : trade.offers2;
     if (side.find(p => p === pokemonDbId)) return message.reply("That Pokemon is already in the trade.");
@@ -168,6 +171,9 @@ async function execute(message, args, spawns, prefix) {
     if (t.user1 === userId || t.user2 === userId) {
       return message.reply(`You already have an active trade! Cancel it first with \`${prefix}trade cancel\`.`);
     }
+    if (t.user1 === mentioned.id || t.user2 === mentioned.id) {
+      return message.reply(`**${mentioned.username}** is already in an active trade! They must finish or cancel it first.`);
+    }
   }
 
   const tradeKey = `${userId}-${mentioned.id}`;
@@ -184,8 +190,8 @@ async function execute(message, args, spawns, prefix) {
     .setTitle("Trade Started!")
     .setDescription(
       `${message.author} wants to trade with ${mentioned}!\n\n` +
-      `Use \`${prefix}trade add <pokemon id>\` to add Pokemon\n` +
-      `Use \`${prefix}trade remove <pokemon id>\` to remove Pokemon\n` +
+      `Use \`${prefix}trade add <pokemon position>\` to add Pokemon\n` +
+      `Use \`${prefix}trade remove <pokemon position>\` to remove Pokemon\n` +
       `Use \`${prefix}trade info\` to see current offers\n` +
       `Use \`${prefix}trade confirm\` when ready\n` +
       `Use \`${prefix}trade cancel\` to cancel`
@@ -195,4 +201,13 @@ async function execute(message, args, spawns, prefix) {
   message.channel.send({ embeds: [embed] });
 }
 
-module.exports = { name: "trade", aliases: ["t"], description: "Trade Pokemon with another user", execute };
+function isPokemonInActiveTrade(pokemonDbId) {
+  for (const [key, t] of activeTrades) {
+    if (t.offers1.includes(pokemonDbId) || t.offers2.includes(pokemonDbId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { name: "trade", aliases: ["t"], description: "Trade Pokemon with another user", execute, isPokemonInActiveTrade };

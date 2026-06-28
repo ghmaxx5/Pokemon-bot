@@ -57,7 +57,7 @@ async function execute(message, args, spawns, prefix) {
       `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
       `**Equipped Moves:**\n` +
-      formatEquippedMoves(equippedMoves, availableMoves, data.types, prefix) + "\n\n" +
+      formatEquippedMoves([p.move1, p.move2, p.move3, p.move4], availableMoves, data.types, prefix) + "\n\n" +
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       `**All Available Moves:**\n${moveList}`
     )
@@ -131,7 +131,7 @@ async function execute(message, args, spawns, prefix) {
 
         // Restore original select menu after equipping
         const updatedResult = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
-        const updatedSlots = [updatedResult.rows[0].move1, updatedResult.rows[0].move2, updatedResult.rows[0].move3, updatedResult.rows[0].move4].filter(Boolean);
+        const updatedSlots = [updatedResult.rows[0].move1, updatedResult.rows[0].move2, updatedResult.rows[0].move3, updatedResult.rows[0].move4];
         embed.setDescription(
           `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -160,7 +160,7 @@ async function execute(message, args, spawns, prefix) {
 
         // Refresh equipped moves display
         const updatedResult = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
-        const updatedSlots = [updatedResult.rows[0].move1, updatedResult.rows[0].move2, updatedResult.rows[0].move3, updatedResult.rows[0].move4].filter(Boolean);
+        const updatedSlots = [updatedResult.rows[0].move1, updatedResult.rows[0].move2, updatedResult.rows[0].move3, updatedResult.rows[0].move4];
         embed.setDescription(
           `**Level:** ${p.level} | **Available Moves:** ${availableMoves.length}\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -213,12 +213,13 @@ async function handleEquipMove(message, args, p, data, pokeName, userId, prefix)
   return message.reply(`${emoji} **${pokeName}** learned **${move.name}** in slot ${slot}! (${capitalize(move.type)} | Power: ${move.power} | Acc: ${move.accuracy}%)`);
 }
 
-function formatEquippedMoves(equippedNames, availableMoves, types, prefix) {
-  if (equippedNames.length === 0) return `No moves equipped yet! Use \`${prefix}moves set <slot> <move>\` to equip moves.`;
+function formatEquippedMoves(slots, availableMoves, types, prefix) {
+  const hasMoves = slots.some(Boolean);
+  if (!hasMoves) return `No moves equipped yet! Use \`${prefix}moves set <slot> <move>\` to equip moves.`;
 
   let text = "";
   for (let i = 0; i < 4; i++) {
-    const name = equippedNames[i] || i < equippedNames.length ? equippedNames[i] : null;
+    const name = slots[i];
     if (name) {
       const moveData = availableMoves.find(m => m.name === name);
       const emoji = getTypeEmoji(moveData?.type || types[0] || "normal");

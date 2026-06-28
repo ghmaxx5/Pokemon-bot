@@ -30,6 +30,11 @@ async function execute(message, args, spawns, prefix) {
     if (poke.rows.length === 0) return message.reply("You don't own that Pokemon.");
     if (poke.rows[0].favorite) return message.reply("You can't list a favorited Pokemon!");
 
+    const { isPokemonInActiveTrade } = require("./trade");
+    if (isPokemonInActiveTrade(pokemonDbId)) {
+      return message.reply("You can't list a Pokemon that is currently in an active trade!");
+    }
+
     const user = await pool.query("SELECT selected_pokemon_id FROM users WHERE user_id = $1", [userId]);
     if (user.rows[0].selected_pokemon_id === pokemonDbId) {
       return message.reply("You can't list your selected Pokemon! Select a different one first.");
@@ -57,12 +62,18 @@ async function execute(message, args, spawns, prefix) {
       await client.query("BEGIN");
 
       const listing = await client.query(
-        "SELECT ml.*, p.pokemon_id, p.nickname, p.level, p.shiny FROM market_listings ml JOIN pokemon p ON ml.pokemon_db_id = p.id WHERE ml.id = $1 FOR UPDATE",
+        "SELECT ml.*, p.pokemon_id, p.nickname, p.level, p.shiny, p.user_id as current_owner FROM market_listings ml JOIN pokemon p ON ml.pokemon_db_id = p.id WHERE ml.id = $1 FOR UPDATE",
         [listingId]
       );
       if (listing.rows.length === 0) { await client.query("ROLLBACK"); return message.reply("That listing doesn't exist or was already bought."); }
       const l = listing.rows[0];
       if (l.seller_id === userId) { await client.query("ROLLBACK"); return message.reply("You can't buy your own listing!"); }
+
+      if (l.current_owner !== l.seller_id) {
+        await client.query("DELETE FROM market_listings WHERE id = $1", [listingId]);
+        await client.query("COMMIT");
+        return message.reply("This listing is no longer valid (the seller no longer owns the Pokemon).");
+      }
 
       const buyer = await client.query("SELECT balance FROM users WHERE user_id = $1 FOR UPDATE", [userId]);
       if (buyer.rows.length === 0) { await client.query("ROLLBACK"); return message.reply("You haven't started yet!"); }

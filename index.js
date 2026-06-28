@@ -265,7 +265,7 @@ async function handleXP(message) {
     xpCooldowns.set(message.author.id, Date.now());
 
     const user = await pool.query(
-      "SELECT * FROM users WHERE user_id = $1 AND started = TRUE",
+      "SELECT * FROM users WHERE user_id = $1 AND started = TRUE AND banned = FALSE",
       [message.author.id],
     );
     if (user.rows.length === 0 || !user.rows[0].selected_pokemon_id) return;
@@ -281,8 +281,8 @@ async function handleXP(message) {
     }
 
     const result = await pool.query(
-      "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
-      [xpGain, user.rows[0].selected_pokemon_id],
+      "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 AND user_id = $3 RETURNING *",
+      [xpGain, user.rows[0].selected_pokemon_id, message.author.id],
     );
 
     if (result.rows.length === 0) return;
