@@ -1,324 +1,473 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require("discord.js");
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, AttachmentBuilder } = require("discord.js");
 const { pool } = require("../database");
-const { getPokemonById, getPokemonImage } = require("../data/pokemonLoader");
-const { capitalize, totalIV } = require("../utils/helpers");
-const { getMovesForPokemon, getEquippedMoves } = require("../data/moves");
+const { getPokemonById, getPokemonImage, getRandomPokemon } = require("../data/pokemonLoader");
+const { capitalize, totalIV, generateIVs, randomNature } = require("../utils/helpers");
 const { getEffectiveness } = require("../data/types");
-const { getMegaData, getGmaxData, getGmaxMoves } = require("../data/mega");
+const { getMegaData, getGmaxData } = require("../data/mega");
 const { generateBattleImage } = require("../utils/battleImage");
+const { bestSpriteUrl, spriteCandidates } = require("../utils/formSprite");
+const { prefetch } = require("../utils/spriteCache");
+const S = require("../utils/scene");
+const E = require("../utils/battleEngine");
+const AI = require("../utils/battleAI");
 
-const activeBattles = new Map();
+const CHOICE_TIMEOUT = 60_000;
+const SWITCH_TIMEOUT = 30_000;
+const ACCEPT_TIMEOUT = 60_000;
+const SELECT_TIMEOUT = 90_000;
+// Hard cap so a stall-vs-stall matchup can't run forever.
+const MAX_TURNS = 60;
+// A battle whose collectors all died silently would otherwise keep the channel
+// and both trainers locked out for good.
+const IDLE_LIMIT = 10 * 60 * 1000;
 
-function calcHP(baseHP, ivHP, level) {
-  return Math.floor(((2 * baseHP + ivHP) * level / 100) + level + 10);
-}
+const activeBattles = new Map(); // channelId -> battle
+const battlingUsers = new Map(); // userId    -> channelId
 
-function calcStat(baseStat, iv, level, boost = 0) {
-  return Math.floor(((2 * (baseStat + boost) + iv) * level / 100) + 5);
-}
+// ── Registry ──────────────────────────────────────────────────────────
 
-function calcDamage(level, power, attack, defense, effectiveness, stab = false) {
-  const base = Math.floor((((2 * level / 5 + 2) * power * attack / defense) / 50) + 2);
-  const stabMult = stab ? 1.5 : 1;
-  const random = (Math.random() * 0.15 + 0.85);
-  return Math.max(1, Math.floor(base * effectiveness * stabMult * random));
-}
-
-function getBattleName(poke) {
-  let prefix = "";
-  if (poke.megaEvolved) {
-    prefix = poke.megaData?.isPrimal ? "Primal " : "Mega ";
-  } else if (poke.gmaxed) {
-    prefix = "G-Max ";
+function registerBattle(battle) {
+  activeBattles.set(battle.channelId, battle);
+  battle.lastActivity = Date.now();
+  battlingUsers.set(battle.challenger, battle.channelId);
+  if (battle.opponent && battle.opponent !== "AI_TRAINER") {
+    battlingUsers.set(battle.opponent, battle.channelId);
   }
-  const shiny = poke.shiny ? "✨ " : "";
-  return `${shiny}${prefix}${poke.nickname || capitalize(poke.data.name)}`;
+  prepareScene(battle);
 }
 
-function hpBar(current, max) {
-  const pct = Math.max(0, current / max);
-  const filled = Math.round(pct * 20);
-  let barChar;
-  if (pct > 0.5) { barChar = "🟩"; }
-  else if (pct > 0.2) { barChar = "🟨"; }
-  else { barChar = "🟥"; }
-  return `${barChar} \`[${"█".repeat(filled)}${"░".repeat(20 - filled)}]\` **${current}**/${max} HP`;
-}
+/**
+ * Locks the arena in for the whole battle and warms every sprite it can need.
+ *
+ * The scene is chosen once, not per turn — deriving it from whoever is currently
+ * active would swap the background on every switch. Mega and Gigantamax artwork
+ * is prefetched here too, so the turn a form change actually happens the new
+ * model is already in the cache and the frame doesn't stall or fall back to the
+ * base sprite.
+ */
+function prepareScene(battle) {
+  const teams = [battle.p1Team, battle.p2Team].filter(Array.isArray);
+  const roster = teams.flat();
+  const lead = battle.p1Active || roster[0];
 
-function getPokeImage(poke) {
-  const id = poke.pokemon_id;
-  if (poke.gmaxed) {
-    // Use custom gmaxImageUrl if defined on gmax data (e.g. Eternamax)
-    if (poke.gmaxData?.gmaxImageUrl) return poke.gmaxData.gmaxImageUrl;
-    return `https://img.pokemondb.net/artwork/large/${getFormName(poke.data.name)}-gigantamax.jpg`;
+  if (!battle.sceneKey) {
+    battle.sceneKey = S.sceneForTypes(lead?.activeTypes || lead?.data?.types || []);
+    battle.sceneSeed = S.seedFrom(battle.channelId, battle.sceneKey);
   }
-  if (poke.megaEvolved) {
-    if (poke.megaData?.isPrimal) {
-      return `https://img.pokemondb.net/artwork/large/${getFormName(poke.data.name)}-primal.jpg`;
+
+  const urls = [];
+  for (const poke of roster) {
+    if (!poke) continue;
+    urls.push(...spriteCandidates(poke));
+    // The form the engine would grant if this Pokemon transforms mid-battle.
+    if (poke.canMega) urls.push(...spriteCandidates({ ...poke, megaEvolved: true }));
+    if (poke.canGmax) urls.push(...spriteCandidates({ ...poke, gmaxed: true }));
+  }
+  prefetch(urls);
+}
+
+function cleanupBattle(channelId) {
+  const battle = activeBattles.get(channelId);
+  if (!battle) return;
+  activeBattles.delete(channelId);
+  for (const [userId, cid] of battlingUsers) {
+    if (cid === channelId) battlingUsers.delete(userId);
+  }
+}
+
+function busyChannel(userId) {
+  const cid = battlingUsers.get(userId);
+  if (cid && activeBattles.has(cid)) return cid;
+  if (cid) battlingUsers.delete(userId);
+  return null;
+}
+
+/** A thrown error used to brick the channel forever — now it just ends the battle. */
+async function abortBattle(battle, err, reason) {
+  if (err) console.error("Battle aborted:", err);
+  const channel = battle?.channel;
+  cleanupBattle(battle?.channelId);
+  if (!channel) return;
+  await channel.send({
+    embeds: [new EmbedBuilder()
+      .setTitle("⚠️ Battle Ended")
+      .setDescription(reason || "Something went wrong while resolving the turn, so the battle was cancelled. No rewards were given.")
+      .setColor(0xe74c3c)]
+  }).catch(() => {});
+}
+
+const idleSweep = setInterval(() => {
+  const now = Date.now();
+  for (const [channelId, battle] of activeBattles) {
+    if (now - (battle.lastActivity || 0) > IDLE_LIMIT) {
+      abortBattle(battle, null, "This battle was inactive for too long and has been cancelled.");
     }
-    return `https://img.pokemondb.net/artwork/large/${getFormName(poke.data.name)}-mega.jpg`;
   }
-  return getPokemonImage(id, poke.shiny);
-}
+}, 60_000);
+if (idleSweep.unref) idleSweep.unref();
+
+// ── Presentation ──────────────────────────────────────────────────────
 
 function getFormName(name) {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/\s+/g, "-");
 }
 
-function getCurrentMoves(poke) {
-  if (poke.gmaxed && poke.gmaxData?.gmaxMoves) {
-    return poke.gmaxData.gmaxMoves;
-  }
-  return poke.moves;
+/**
+ * Sprite URL for embeds that can't await a load (thumbnails, the fallback image).
+ * Mega / Gigantamax artwork is resolved by formSprite.js, which maps each form to
+ * a transparent PNG — the old guess at a pokemondb `.jpg` gave a white box on the
+ * battle scene, and 404'd outright for the X/Y megas.
+ */
+function getPokeImage(poke) {
+  return bestSpriteUrl(poke) || getPokemonImage(poke.pokemon_id, poke.shiny);
 }
 
-async function buildBattleEmbed(battle, actionLog) {
-  // Sanitize — Discord rejects empty strings in description
-  if (!actionLog || actionLog.trim() === "") actionLog = null;
+/**
+ * Everything the field renderer needs about one combatant. The whole candidate
+ * chain is passed so a form with missing artwork falls back to the base sprite
+ * inside the renderer instead of blanking the frame.
+ */
+function fieldSide(poke, dots) {
+  return {
+    currentHp: poke.currentHp,
+    maxHp: poke.maxHp,
+    displayName: E.battleName(poke),
+    level: poke.level,
+    teamDots: dots,
+    types: poke.activeTypes || poke.data.types,
+    status: poke.status,
+    confusedTurns: poke.confusedTurns,
+    stages: poke.stages,
+    shiny: poke.shiny,
+    megaEvolved: poke.megaEvolved,
+    isPrimal: !!poke.megaData?.isPrimal,
+    gmaxed: poke.gmaxed,
+    gmaxTurns: poke.gmaxTurns,
+    zPowered: !!poke.zPowered,
+    protecting: poke.protecting,
+    charging: !!poke.chargedMove,
+    mustRecharge: poke.mustRecharge,
+    spriteUrls: spriteCandidates(poke)
+  };
+}
+
+function teamDots(team) {
+  return team.map(p => p.currentHp > 0);
+}
+
+function sideLabel(battle, side) {
+  if (side === 2 && battle.isAI) return "🤖 AI Trainer";
+  return `<@${side === 1 ? battle.challenger : battle.opponent}>`;
+}
+
+/** The shared field view: canvas image plus whatever happened last turn. */
+async function buildFieldEmbed(battle, actionLog) {
   const p1 = battle.p1Active;
   const p2 = battle.p2Active;
-  const p1Name = getBattleName(p1);
-  const p2Name = getBattleName(p2);
+  const p1Name = E.battleName(p1);
+  const p2Name = E.battleName(p2);
 
-  let statusLines = "";
-  if (p1.megaEvolved) statusLines += `💎 ${p1Name} is Mega Evolved!\n`;
-  if (p1.gmaxed) statusLines += `💍 ${p1Name} is Gigantamaxed! (${p1.gmaxTurns} turns left)\n`;
-  if (p2.megaEvolved) statusLines += `💎 ${p2Name} is Mega Evolved!\n`;
-  if (p2.gmaxed) statusLines += `💍 ${p2Name} is Gigantamaxed! (${p2.gmaxTurns} turns left)\n`;
+  const banner = [];
+  if (p1.megaEvolved) banner.push(`💎 ${p1Name} is Mega Evolved!`);
+  if (p1.gmaxed) banner.push(`💍 ${p1Name} is Gigantamaxed! (${p1.gmaxTurns} turn${p1.gmaxTurns === 1 ? "" : "s"} left)`);
+  if (p2.megaEvolved) banner.push(`💎 ${p2Name} is Mega Evolved!`);
+  if (p2.gmaxed) banner.push(`💍 ${p2Name} is Gigantamaxed! (${p2.gmaxTurns} turn${p2.gmaxTurns === 1 ? "" : "s"} left)`);
 
-  const p1Types = (p1.activeTypes || p1.data.types).map(t => capitalize(t)).join("/");
-  const p2Types = (p2.activeTypes || p2.data.types).map(t => capitalize(t)).join("/");
+  const p1Tag = E.statusTag(p1);
+  const p2Tag = E.statusTag(p2);
+  const condition = [];
+  if (p1Tag) condition.push(`${p1Name} — ${p1Tag}`);
+  if (p2Tag) condition.push(`${p2Name} — ${p2Tag}`);
 
-  // Build team dot arrays for 3v3 indicator
-  const p1Dots = battle.is3v3 ? battle.p1Team.map(p => p.currentHp > 0) : null;
-  const p2Dots = battle.is3v3 ? battle.p2Team.map(p => p.currentHp > 0) : null;
-
-  // Generate the combined battle image via canvas
-  let attachment = null;
   let imageUrl = getPokeImage(p2);
+  let attachment = null;
   try {
-    const imgBuffer = await generateBattleImage(
-      { currentHp: p1.currentHp, maxHp: p1.maxHp, displayName: p1Name, level: p1.level, teamDots: p1Dots },
-      { currentHp: p2.currentHp, maxHp: p2.maxHp, displayName: p2Name, level: p2.level, teamDots: p2Dots },
+    const buffer = await generateBattleImage(
+      fieldSide(p1, battle.is3v3 ? teamDots(battle.p1Team) : null),
+      fieldSide(p2, battle.is3v3 ? teamDots(battle.p2Team) : null),
       getPokeImage(p1),
-      getPokeImage(p2)
+      getPokeImage(p2),
+      { turn: battle.turnNumber || 1, sceneKey: battle.sceneKey, seed: battle.sceneSeed }
     );
-    attachment = new AttachmentBuilder(imgBuffer, { name: "battle.png" });
+    attachment = new AttachmentBuilder(buffer, { name: "battle.png" });
     imageUrl = "attachment://battle.png";
   } catch (err) {
     console.error("Battle image generation failed:", err);
   }
 
+  const p1Types = (p1.activeTypes || p1.data.types).map(capitalize).join("/");
+  const p2Types = (p2.activeTypes || p2.data.types).map(capitalize).join("/");
+
+  const description = [
+    banner.length ? banner.join("\n") : null,
+    actionLog && actionLog.trim() ? actionLog.trim() : null,
+    condition.length ? `\n**Conditions**\n${condition.join("\n")}` : null
+  ].filter(Boolean).join("\n\n") || "⚔️ Battle in progress!";
+
   const embed = new EmbedBuilder()
-    .setTitle("⚔️ Pokémon Battle!")
-    .setDescription(
-      (statusLines ? `${statusLines}\n` : "") +
-      (actionLog ? actionLog : "⚔️ Battle in progress!")
-    )
-    .setColor(0xe74c3c)
+    .setTitle(`⚔️ Pokémon Battle — Turn ${battle.turnNumber || 1}`)
+    .setDescription(description.slice(0, 4000))
+    .setColor(battle.isAI ? 0x9b59b6 : 0xe74c3c)
     .setImage(imageUrl)
-    .setFooter({ text: `${p1Name} [${p1Types}] vs ${p2Name} [${p2Types}] • 60s to choose` });
+    .setFooter({ text: `${p1Name} [${p1Types}] vs ${p2Name} [${p2Types}]` });
 
   return { embed, attachment };
 }
 
-function buildMoveButtons(poke, prefix = "battle_move") {
-  const moves = getCurrentMoves(poke);
+async function sendField(battle, actionLog) {
+  const { embed, attachment } = await buildFieldEmbed(battle, actionLog);
+  const opts = { embeds: [embed], components: [] };
+  if (attachment) opts.files = [attachment];
+  return battle.channel.send(opts);
+}
+
+/** Per-player move selector. Shows PP and greys out empty slots. */
+function buildMoveRow(poke, prefix) {
   const row = new ActionRowBuilder();
+  const moves = E.currentMoves(poke);
+
+  if (E.isOutOfPP(poke)) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`${prefix}_struggle`)
+      .setLabel("Struggle (no PP left)")
+      .setStyle(ButtonStyle.Danger));
+    return row;
+  }
+
   for (let i = 0; i < Math.min(moves.length, 4); i++) {
     const move = moves[i];
-    const label = move.isProtect
-      ? `${move.name} (Block)`
-      : `${move.name} (${move.power}/${move.accuracy || 100})`;
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`${prefix}_${i}`)
-        .setLabel(label.substring(0, 80))
-        .setStyle(move.isProtect ? ButtonStyle.Secondary : ButtonStyle.Primary)
-    );
+    const isStatus = move.category === "status" || !(move.power > 0);
+    const label = isStatus
+      ? `${move.name} · ${move.pp}/${move.maxPp} PP`
+      : `${move.name} · ${move.power} · ${move.pp}/${move.maxPp} PP`;
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`${prefix}_move_${i}`)
+      .setLabel(label.slice(0, 80))
+      .setStyle(isStatus ? ButtonStyle.Secondary : ButtonStyle.Primary)
+      .setDisabled((move.pp ?? 0) <= 0));
   }
   return row;
 }
 
-function preparePokemonForBattle(pRow, data) {
-  const hp = calcHP(data.baseStats.hp, pRow.iv_hp, pRow.level);
-  const heldItem = pRow.held_item;
-  const canMega = heldItem === "mega_stone" && getMegaData(pRow.pokemon_id);
-  const canGmax = heldItem === "gmax_ring" && getGmaxData(pRow.pokemon_id);
+function buildActionRows(battle, poke, prefix, { allowSwitch = true } = {}) {
+  const rows = [buildMoveRow(poke, prefix)];
 
-  return {
-    ...pRow,
-    data,
-    maxHp: hp,
-    currentHp: hp,
-    moves: getEquippedMoves([pRow.move1, pRow.move2, pRow.move3, pRow.move4], data.types, pRow.level, pRow.pokemon_id),
-    canMega: !!canMega,
-    canGmax: !!canGmax,
-    megaEvolved: false,
-    gmaxed: false,
-    gmaxTurns: 0,
-    megaData: canMega ? getMegaData(pRow.pokemon_id) : null,
-    gmaxData: canGmax ? getGmaxData(pRow.pokemon_id) : null,
-    activeTypes: [...data.types],
-    statBoosts: { hp: 0, atk: 0, def: 0, spatk: 0, spdef: 0, spd: 0 },
-    baseMaxHp: hp,
-    heldItem: heldItem || null
-  };
+  const canMega = poke.canMega && !poke.megaEvolved && !poke.gmaxed;
+  const canGmax = poke.canGmax && !poke.gmaxed && !poke.megaEvolved;
+  const canZMove = poke.canZMove && !poke.zUsed && !poke.zPowered;
+  const team = battle.p1Team.includes(poke) ? battle.p1Team : battle.p2Team;
+  const canSwitch = allowSwitch && battle.is3v3 && team.some(p => p.currentHp > 0 && p !== poke);
+
+  const row = new ActionRowBuilder();
+  if (canMega) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`${prefix}_mega`)
+      .setLabel(poke.megaData?.isPrimal ? "Primal Reversion" : "Mega Evolve")
+      .setEmoji("💎").setStyle(ButtonStyle.Danger));
+  }
+  if (canGmax) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`${prefix}_gmax`).setLabel("Gigantamax")
+      .setEmoji("💍").setStyle(ButtonStyle.Danger));
+  }
+  if (canZMove) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`${prefix}_zmove`).setLabel("Z-Power")
+      .setEmoji("⚡").setStyle(ButtonStyle.Danger));
+  }
+  if (canSwitch) {
+    row.addComponents(new ButtonBuilder()
+      .setCustomId(`${prefix}_switch`).setLabel("Switch")
+      .setEmoji("🔄").setStyle(ButtonStyle.Secondary));
+  }
+  row.addComponents(new ButtonBuilder()
+    .setCustomId(`${prefix}_pass`).setLabel("Pass")
+    .setEmoji("⏭️").setStyle(ButtonStyle.Secondary));
+  rows.push(row);
+
+  return rows;
 }
+
+function buildChooseEmbed(battle, side, note) {
+  const poke = side === 1 ? battle.p1Active : battle.p2Active;
+  const name = E.battleName(poke);
+  const types = (poke.activeTypes || poke.data.types).map(capitalize).join("/");
+  const tag = E.statusTag(poke);
+
+  const lines = [];
+  if (poke.megaEvolved) lines.push(`💎 ${name} is Mega Evolved!`);
+  if (poke.gmaxed) lines.push(`💍 ${name} is Gigantamaxed! (${poke.gmaxTurns} left)`);
+  if (lines.length) lines.push("");
+
+  lines.push(`**${name}** [${types}] — Lv. ${poke.level}`);
+  lines.push(E.hpBar(poke.currentHp, poke.maxHp));
+  if (tag) lines.push(`Condition: ${tag}`);
+  lines.push("");
+  lines.push(note || "Pick your action below — your opponent is choosing at the same time.");
+  lines.push(`\n⏱️ ${CHOICE_TIMEOUT / 1000} seconds to choose`);
+
+  return new EmbedBuilder()
+    .setTitle("⚔️ Choose Your Action")
+    .setDescription(lines.join("\n"))
+    .setColor(0x3498db)
+    .setThumbnail(getPokeImage(poke))
+    .setFooter({ text: "Buttons show: Move · Power · PP" });
+}
+
+const lockedEmbed = (text, color = 0x2ecc71) =>
+  new EmbedBuilder().setDescription(text).setColor(color);
+
+// ── Choice helpers ────────────────────────────────────────────────────
+
+/** A Pokemon locked into recharging or a charge move doesn't get to choose. */
+function forcedChoice(poke) {
+  if (poke.mustRecharge) return { name: "Recharge", isForced: true };
+  const charging = E.forcedMove(poke);
+  if (charging) return charging;
+  return null;
+}
+
+/** What to use when a trainer never pressed a button. */
+function timeoutChoice(poke) {
+  const moves = E.currentMoves(poke).filter(m => (m.pp ?? 0) > 0);
+  if (!moves.length) return { ...E.STRUGGLE };
+  return moves.find(m => m.category !== "status" && m.power > 0) || moves[0];
+}
+
+function resolveMoveFromCustomId(poke, customId, prefix) {
+  if (customId === `${prefix}_struggle`) return { ...E.STRUGGLE };
+  const index = parseInt(customId.replace(`${prefix}_move_`, ""), 10);
+  const moves = E.currentMoves(poke);
+  return moves[index] || timeoutChoice(poke);
+}
+
+// ── Command entry ─────────────────────────────────────────────────────
 
 async function execute(message, args, spawns, prefix) {
   const userId = message.author.id;
   const channelId = message.channel.id;
   const mentioned = message.mentions.users.first();
+  const sub = (args[0] || "").toLowerCase();
 
   if (!args.length) {
     return message.reply(
-      "**⚔️ Battle Commands:**\n" +
-      `\`${prefix}battle @user\` - Challenge a trainer (3v3)\n` +
-      `\`${prefix}battle ai\` - Fight an AI trainer (3v3)\n` +
-      `\`${prefix}battle quit\` - Forfeit the current battle\n`
+      "**⚔️ Battle Commands**\n" +
+      `\`${prefix}battle @user\` — challenge a trainer to a 3v3\n` +
+      `\`${prefix}battle ai\` — fight an AI trainer (3v3)\n` +
+      `\`${prefix}battle quit\` — forfeit the battle in this channel\n\n` +
+      "Battles use real Pokémon mechanics: physical/special split, natures, " +
+      "STAB, type matchups, criticals, PP, move priority and status conditions."
     );
   }
 
-  // ── Quit / Forfeit ──
-  if (args[0].toLowerCase() === "quit" || args[0].toLowerCase() === "forfeit" || args[0].toLowerCase() === "ff") {
-    const battle = activeBattles.get(channelId);
-
-    if (!battle) {
-      return message.reply("There's no active battle in this channel!");
-    }
-
-    // Only participants can quit
-    const isChallenger = userId === battle.challenger;
-    const isOpponent = userId === battle.opponent;
-    if (!isChallenger && !isOpponent) {
-      return message.reply("You're not part of the battle in this channel!");
-    }
-
-    // Can't quit during team selection phase — battle must be active
-    if (battle.status !== "active") {
-      activeBattles.delete(channelId);
-      return message.reply("Battle cancelled.");
-    }
-
-    const quitter = isChallenger ? battle.challenger : battle.opponent;
-    const winner = isChallenger ? battle.opponent : battle.challenger;
-    const isAIWin = winner === "AI_TRAINER";
-
-    // Give winner reward
-    const reward = 200;
-    const xpGain = 30;
-    if (!isAIWin) {
-      await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [reward, winner]);
-      const winnerTeam = isChallenger ? battle.p2Team : battle.p1Team;
-      for (const p of winnerTeam) {
-        if (p.id > 0) await pool.query("UPDATE pokemon SET xp = xp + $1 WHERE id = $2", [xpGain, p.id]);
-      }
-    }
-
-    activeBattles.delete(channelId);
-
-    const forfeitEmbed = new EmbedBuilder()
-      .setTitle("🏳️ Battle Forfeited!")
-      .setDescription(
-        `<@${quitter}> has forfeited the battle!\n\n` +
-        (isAIWin
-          ? `🤖 The AI Trainer wins by default!`
-          : `🏆 <@${winner}> wins by default and earns **${reward}** Cybercoins + **${xpGain}** XP per Pokémon!`)
-      )
-      .setColor(0x95a5a6)
-      .setFooter({ text: "Better luck next time!" });
-
-    return message.channel.send({ embeds: [forfeitEmbed] });
+  if (sub === "quit" || sub === "forfeit" || sub === "ff") {
+    return handleForfeit(message, userId, channelId);
   }
 
-  if (args[0].toLowerCase() === "ai" || args[0].toLowerCase() === "npc" || args[0].toLowerCase() === "cpu") {
+  if (sub === "ai" || sub === "npc" || sub === "cpu") {
     return startAIBattle(message, userId, channelId);
   }
-  if (!mentioned) return message.reply(`Please mention a user to battle or use \`${prefix}battle ai\`!`);
-  if (mentioned.id === userId) return message.reply(`You can't battle yourself! Try \`${prefix}battle ai\` instead.`);
-  if (mentioned.bot) return message.reply(`You can't battle a bot! Try \`${prefix}battle ai\` instead.`);
-  if (activeBattles.has(channelId)) return message.reply("There's already a battle in this channel!");
 
-  const user1 = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
-  const user2 = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [mentioned.id]);
-  if (user1.rows.length === 0) return message.reply("You haven't started yet!");
-  if (user2.rows.length === 0) return message.reply("That user hasn't started yet!");
+  if (!mentioned) return message.reply(`Please mention a trainer to battle, or use \`${prefix}battle ai\`.`);
+  if (mentioned.id === userId) return message.reply(`You can't battle yourself! Try \`${prefix}battle ai\`.`);
+  if (mentioned.bot) return message.reply(`You can't battle a bot! Try \`${prefix}battle ai\`.`);
+  if (activeBattles.has(channelId)) return message.reply("There's already a battle running in this channel!");
 
-  const p1Pokemon = await pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC LIMIT 20", [userId]);
-  const p2Pokemon = await pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC LIMIT 20", [mentioned.id]);
+  const busySelf = busyChannel(userId);
+  if (busySelf) return message.reply(`You're already in a battle in <#${busySelf}>!`);
+  const busyFoe = busyChannel(mentioned.id);
+  if (busyFoe) return message.reply(`${mentioned.username} is already in a battle in <#${busyFoe}>!`);
 
-  if (p1Pokemon.rows.length < 1) return message.reply("You need at least 1 Pokemon to battle!");
-  if (p2Pokemon.rows.length < 1) return message.reply("Your opponent needs at least 1 Pokemon to battle!");
+  const [user1, user2] = await Promise.all([
+    pool.query("SELECT 1 FROM users WHERE user_id = $1 AND started = TRUE", [userId]),
+    pool.query("SELECT 1 FROM users WHERE user_id = $1 AND started = TRUE", [mentioned.id])
+  ]);
+  if (user1.rows.length === 0) return message.reply(`You haven't started yet! Use \`${prefix}start\`.`);
+  if (user2.rows.length === 0) return message.reply("That trainer hasn't started yet!");
+
+  const [p1Pokemon, p2Pokemon] = await Promise.all([
+    pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC, id ASC LIMIT 25", [userId]),
+    pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC, id ASC LIMIT 25", [mentioned.id])
+  ]);
+  if (p1Pokemon.rows.length < 1) return message.reply("You need at least 1 Pokémon to battle!");
+  if (p2Pokemon.rows.length < 1) return message.reply("Your opponent needs at least 1 Pokémon to battle!");
 
   const battle = {
     challenger: userId,
     opponent: mentioned.id,
     status: "pending",
     channelId,
+    channel: message.channel,
     is3v3: true,
-    p1Team: [],
-    p2Team: [],
-    p1Active: null,
-    p2Active: null,
-    p1Selection: [],
-    p2Selection: [],
+    p1Team: [], p2Team: [],
+    p1Active: null, p2Active: null,
+    p1Selection: [], p2Selection: [],
     p1Pokemon: p1Pokemon.rows,
     p2Pokemon: p2Pokemon.rows,
-    turn: null,
+    turnNumber: 0,
     isAI: false
   };
-
-  activeBattles.set(channelId, battle);
+  registerBattle(battle);
 
   const challengeEmbed = new EmbedBuilder()
     .setTitle("⚔️ Battle Challenge!")
     .setDescription(
-      `${message.author} challenges ${mentioned} to a **3v3 Pokemon Battle**!\n\n` +
-      `Each trainer will select 3 Pokemon.\n` +
-      `Pokemon choices are hidden from the opponent!\n\n` +
-      `React below to accept or decline.`
+      `${message.author} challenges ${mentioned} to a **3v3 Pokémon Battle**!\n\n` +
+      "Each trainer picks 3 Pokémon. Picks stay hidden from the opponent.\n" +
+      "Both trainers choose their move at the same time each turn."
     )
     .setColor(0xe74c3c)
-    .setFooter({ text: "Challenge expires in 60 seconds" });
+    .setFooter({ text: `Challenge expires in ${ACCEPT_TIMEOUT / 1000} seconds` });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("battle_accept").setLabel("Accept").setEmoji("⚔️").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId("battle_decline").setLabel("Decline").setEmoji("❌").setStyle(ButtonStyle.Danger)
   );
 
-  const challengeMsg = await message.channel.send({ embeds: [challengeEmbed], components: [row] });
+  const challengeMsg = await message.channel.send({ content: `${mentioned}`, embeds: [challengeEmbed], components: [row] });
 
-  const acceptCollector = challengeMsg.createMessageComponentCollector({
-    filter: (i) => i.user.id === mentioned.id,
-    time: 60000,
+  const collector = challengeMsg.createMessageComponentCollector({
+    filter: i => i.user.id === mentioned.id,
+    time: ACCEPT_TIMEOUT,
     max: 1
   });
 
-  acceptCollector.on("collect", async (interaction) => {
+  collector.on("collect", async (interaction) => {
     if (interaction.customId === "battle_decline") {
-      activeBattles.delete(channelId);
+      cleanupBattle(channelId);
       return interaction.update({
         embeds: [new EmbedBuilder().setTitle("❌ Challenge Declined").setColor(0x95a5a6)],
         components: []
-      });
+      }).catch(() => {});
     }
 
-    if (interaction.customId === "battle_accept") {
-      await interaction.update({
-        embeds: [new EmbedBuilder().setTitle("⚔️ Challenge Accepted!").setDescription("Both trainers: select your team below!").setColor(0x2ecc71)],
-        components: []
-      });
+    await interaction.update({
+      embeds: [new EmbedBuilder()
+        .setTitle("⚔️ Challenge Accepted!")
+        .setDescription("Both trainers — select your team below. You can pick at the same time.")
+        .setColor(0x2ecc71)],
+      components: []
+    }).catch(() => {});
 
-      battle.status = "selecting";
-      await collectTeamSelection(message, battle, userId, p1Pokemon.rows, "p1Selection", "Challenger");
-      await collectTeamSelection(message, battle, mentioned.id, p2Pokemon.rows, "p2Selection", "Opponent");
+    battle.status = "selecting";
+    battle.lastActivity = Date.now();
+
+    try {
+      // Both selectors go up at once — the old code made the opponent wait for
+      // the challenger to finish before they could even see their list.
+      await Promise.all([
+        collectTeamSelection(message, battle, userId, p1Pokemon.rows, "p1Selection", "Challenger"),
+        collectTeamSelection(message, battle, mentioned.id, p2Pokemon.rows, "p2Selection", "Opponent")
+      ]);
+      await startBattle(message, battle);
+    } catch (err) {
+      await abortBattle(battle, err);
     }
   });
 
-  acceptCollector.on("end", (collected) => {
+  collector.on("end", (collected) => {
     if (collected.size === 0) {
-      activeBattles.delete(channelId);
+      cleanupBattle(channelId);
       challengeMsg.edit({
         embeds: [new EmbedBuilder().setTitle("⏰ Challenge Expired").setColor(0x95a5a6)],
         components: []
@@ -327,1125 +476,953 @@ async function execute(message, args, spawns, prefix) {
   });
 }
 
-async function collectTeamSelection(message, battle, playerId, pokemonRows, selectionKey, label) {
-  const channel = message.channel;
-  const maxPicks = Math.min(3, pokemonRows.length);
+async function handleForfeit(message, userId, channelId) {
+  const battle = activeBattles.get(channelId);
+  if (!battle) return message.reply("There's no active battle in this channel!");
 
-  const options = pokemonRows.slice(0, 15).map((p, i) => {
+  const isChallenger = userId === battle.challenger;
+  const isOpponent = userId === battle.opponent;
+  if (!isChallenger && !isOpponent) return message.reply("You're not part of the battle in this channel!");
+
+  if (battle.status !== "active") {
+    cleanupBattle(channelId);
+    return message.reply("Battle cancelled.");
+  }
+
+  battle.forfeitedBy = userId;
+  return finishBattle(battle, isChallenger ? 2 : 1, `🏳️ <@${userId}> forfeited the battle!`, { forfeit: true });
+}
+
+// ── Team selection ────────────────────────────────────────────────────
+
+async function collectTeamSelection(message, battle, playerId, pokemonRows, selectionKey, label) {
+  const maxPicks = Math.min(3, pokemonRows.length);
+  const roster = pokemonRows.slice(0, 25);
+
+  const options = roster.map((p, i) => {
     const data = getPokemonById(p.pokemon_id);
     const name = p.nickname || (data ? capitalize(data.name) : `#${p.pokemon_id}`);
+    const iv = totalIV({ hp: p.iv_hp, atk: p.iv_atk, def: p.iv_def, spatk: p.iv_spatk, spdef: p.iv_spdef, spd: p.iv_spd });
     return {
-      label: `${name} (Lv. ${p.level})`,
-      value: `select_${p.id}`,
-      description: `ID: ${p.id} | IV: ${totalIV({ hp: p.iv_hp, atk: p.iv_atk, def: p.iv_def, spatk: p.iv_spatk, spdef: p.iv_spdef, spd: p.iv_spd })}%`
+      label: `${i + 1}. ${p.shiny ? "✨ " : ""}${name}`.slice(0, 100),
+      value: String(p.id),
+      description: `Lv. ${p.level} · IV ${iv}% · ${p.nature || "—"}`.slice(0, 100)
     };
   });
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`teamsel_${playerId}`)
+    .setPlaceholder(`Pick exactly ${maxPicks} Pokémon`)
+    .setMinValues(maxPicks)
+    .setMaxValues(maxPicks)
+    .addOptions(options);
 
   const embed = new EmbedBuilder()
     .setTitle(`⚔️ Select Your Team — ${label}`)
     .setDescription(
-      `<@${playerId}>, pick ${maxPicks} Pokemon for battle!\n` +
-      `Use the buttons below to select your team.\n` +
-      `Your opponent **cannot** see your choices.\n\n` +
-      `**Your Pokemon:**\n` +
-      pokemonRows.slice(0, 15).map((p, i) => {
+      `<@${playerId}>, choose **${maxPicks}** Pokémon from the menu below.\n` +
+      "Your opponent cannot see your picks.\n\n" +
+      roster.slice(0, 15).map((p, i) => {
         const data = getPokemonById(p.pokemon_id);
         const name = p.nickname || (data ? capitalize(data.name) : `#${p.pokemon_id}`);
         return `\`${i + 1}.\` ${p.shiny ? "✨ " : ""}**${name}** — Lv. ${p.level}`;
       }).join("\n") +
-      `\n\nSelected: **0/${maxPicks}**`
+      (roster.length > 15 ? `\n…and ${roster.length - 15} more in the menu` : "")
     )
     .setColor(0x3498db)
-    .setFooter({ text: "60 seconds to pick your team" });
+    .setFooter({ text: `${SELECT_TIMEOUT / 1000}s to pick — your strongest ${maxPicks} are used if you time out` });
 
-  const buttonRows = [];
-  for (let r = 0; r < Math.ceil(Math.min(15, pokemonRows.length) / 5); r++) {
-    const row = new ActionRowBuilder();
-    for (let i = r * 5; i < Math.min((r + 1) * 5, pokemonRows.length, 15); i++) {
-      const data = getPokemonById(pokemonRows[i].pokemon_id);
-      const shortName = (pokemonRows[i].nickname || (data ? capitalize(data.name) : `#${pokemonRows[i].pokemon_id}`)).substring(0, 15);
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`team_${pokemonRows[i].id}`)
-          .setLabel(`${i + 1}. ${shortName}`)
-          .setStyle(ButtonStyle.Secondary)
-      );
-    }
-    buttonRows.push(row);
-  }
-
-  const selectMsg = await channel.send({ content: `<@${playerId}>`, embeds: [embed], components: buttonRows });
+  const selectMsg = await battle.channel.send({
+    content: `<@${playerId}>`,
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(menu)]
+  });
 
   return new Promise((resolve) => {
-    const selected = [];
+    let settled = false;
     const collector = selectMsg.createMessageComponentCollector({
-      filter: (i) => i.user.id === playerId,
-      time: 60000,
-      max: maxPicks
+      filter: i => i.user.id === playerId && i.customId === `teamsel_${playerId}`,
+      time: SELECT_TIMEOUT,
+      max: 1
     });
 
     collector.on("collect", async (interaction) => {
-      const pokeId = parseInt(interaction.customId.replace("team_", ""));
-      if (selected.includes(pokeId)) {
-        return interaction.reply({ content: "You already selected that Pokemon!", ephemeral: true });
+      const ids = interaction.values.map(v => parseInt(v, 10)).filter(id => roster.some(p => p.id === id));
+      if (ids.length === 0) {
+        await interaction.reply({ content: "Those Pokémon aren't in your roster — try again.", ephemeral: true }).catch(() => {});
+        return;
       }
-
-      selected.push(pokeId);
-      const pRow = pokemonRows.find(p => p.id === pokeId);
-      const data = getPokemonById(pRow.pokemon_id);
-      const name = pRow.nickname || (data ? capitalize(data.name) : `#${pRow.pokemon_id}`);
-
-      if (selected.length >= maxPicks) {
-        battle[selectionKey] = selected;
-
-        await interaction.update({
-          embeds: [new EmbedBuilder()
-            .setTitle("✅ Team Selected!")
-            .setDescription(`<@${playerId}> has selected their team of ${maxPicks}!`)
-            .setColor(0x2ecc71)],
-          components: []
-        });
-
-        const readyFn = battle.isAI ? checkBothReadyAI : checkBothReady;
-        readyFn(message, battle);
-        resolve();
-      } else {
-        await interaction.reply({
-          content: `Selected **${name}**! (${selected.length}/${maxPicks})`,
-          ephemeral: true
-        });
-      }
+      battle[selectionKey] = ids;
+      battle.lastActivity = Date.now();
+      settled = true;
+      await interaction.update({
+        embeds: [new EmbedBuilder()
+          .setTitle("✅ Team Locked In")
+          .setDescription(`<@${playerId}> selected ${ids.length} Pokémon.`)
+          .setColor(0x2ecc71)],
+        components: []
+      }).catch(() => {});
+      resolve();
     });
 
-    collector.on("end", (collected) => {
-      if (selected.length < maxPicks) {
-        const remaining = pokemonRows.filter(p => !selected.includes(p.id));
-        while (selected.length < maxPicks && remaining.length > 0) {
-          selected.push(remaining.shift().id);
-        }
-        battle[selectionKey] = selected;
-        selectMsg.edit({
-          embeds: [new EmbedBuilder()
-            .setTitle("⏰ Time's Up!")
-            .setDescription(`<@${playerId}>'s team was auto-completed.`)
-            .setColor(0xe67e22)],
-          components: []
-        }).catch(() => {});
-        const readyFn = battle.isAI ? checkBothReadyAI : checkBothReady;
-        readyFn(message, battle);
-        resolve();
-      }
+    collector.on("end", () => {
+      if (settled) return;
+      battle[selectionKey] = roster.slice(0, maxPicks).map(p => p.id);
+      selectMsg.edit({
+        embeds: [new EmbedBuilder()
+          .setTitle("⏰ Time's Up")
+          .setDescription(`<@${playerId}>'s team was auto-filled with their strongest ${maxPicks}.`)
+          .setColor(0xe67e22)],
+        components: []
+      }).catch(() => {});
+      resolve();
     });
   });
 }
 
-async function checkBothReady(message, battle) {
-  if (battle.p1Selection.length === 0 || battle.p2Selection.length === 0) return;
-  if (battle.status === "active") return;
+/** Loads the picked rows, verifying ownership, in the order they were picked. */
+async function loadTeam(userId, ids) {
+  if (!ids.length) return [];
+  const res = await pool.query(
+    "SELECT * FROM pokemon WHERE id = ANY($1::int[]) AND user_id = $2",
+    [ids, userId]
+  );
+  const byId = new Map(res.rows.map(r => [r.id, r]));
+  return ids
+    .map(id => byId.get(id))
+    .filter(Boolean)
+    .map(row => {
+      const data = getPokemonById(row.pokemon_id);
+      return data ? E.prepareBattlePokemon(row, data) : null;
+    })
+    .filter(Boolean);
+}
 
+async function startBattle(message, battle) {
+  if (!activeBattles.has(battle.channelId)) return;
+  if (battle.status === "active") return;
   battle.status = "active";
 
-  const p1Rows = await Promise.all(battle.p1Selection.map(async id => {
-    const r = await pool.query("SELECT * FROM pokemon WHERE id = $1", [id]);
-    return r.rows[0];
-  }));
-  const p2Rows = await Promise.all(battle.p2Selection.map(async id => {
-    const r = await pool.query("SELECT * FROM pokemon WHERE id = $1", [id]);
-    return r.rows[0];
-  }));
-
-  battle.p1Team = p1Rows.filter(Boolean).map(row => {
-    const data = getPokemonById(row.pokemon_id);
-    return data ? preparePokemonForBattle(row, data) : null;
-  }).filter(Boolean);
-
-  battle.p2Team = p2Rows.filter(Boolean).map(row => {
-    const data = getPokemonById(row.pokemon_id);
-    return data ? preparePokemonForBattle(row, data) : null;
-  }).filter(Boolean);
+  battle.p1Team = await loadTeam(battle.challenger, battle.p1Selection);
+  battle.p2Team = battle.isAI
+    ? battle.aiTeamData.map(a => E.prepareBattlePokemon(a.row, a.data))
+    : await loadTeam(battle.opponent, battle.p2Selection);
 
   if (battle.p1Team.length === 0 || battle.p2Team.length === 0) {
-    activeBattles.delete(battle.channelId);
-    return message.channel.send("Battle cancelled — couldn't load Pokemon data.");
+    return abortBattle(battle, null, "Battle cancelled — couldn't load the selected Pokémon.");
   }
 
   battle.p1Active = battle.p1Team[0];
   battle.p2Active = battle.p2Team[0];
 
-  const p1Names = battle.p1Team.map(p => getBattleName(p)).join(", ");
-  const p2Names = battle.p2Team.map(p => getBattleName(p)).join(", ");
+  // registerBattle ran before the teams existed, so the arena and the sprite
+  // warm-up are settled now that they do.
+  prepareScene(battle);
 
-  const revealEmbed = new EmbedBuilder()
-    .setTitle("⚔️ 3v3 Battle Begins!")
-    .setDescription(
-      `**<@${battle.challenger}>'s Team:**\n${p1Names}\n\n` +
-      `**<@${battle.opponent}>'s Team:**\n${p2Names}\n\n` +
-      `First Pokemon sent out!\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-    )
-    .setColor(0xe74c3c)
-    .setThumbnail(getPokeImage(battle.p1Active))
-    .setImage(getPokeImage(battle.p2Active));
+  const p1Names = battle.p1Team.map(p => `${E.battleName(p)} (Lv. ${p.level})`).join(", ");
+  const p2Names = battle.p2Team.map(p => `${battle.isAI ? "🤖 " : ""}${E.battleName(p)} (Lv. ${p.level})`).join(", ");
 
-  await message.channel.send({ embeds: [revealEmbed] });
-  await new Promise(r => setTimeout(r, 2000));
-  return startBattleTurn(message, battle, battle.channelId, "Battle begins! Choose your move!");
+  await battle.channel.send({
+    embeds: [new EmbedBuilder()
+      .setTitle(battle.isAI ? "⚔️ 3v3 AI Battle Begins!" : "⚔️ 3v3 Battle Begins!")
+      .setDescription(
+        `**${sideLabel(battle, 1)}'s team**\n${p1Names}\n\n` +
+        `**${sideLabel(battle, 2)}'s team**\n${p2Names}\n\n` +
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
+        `**${E.battleName(battle.p1Active)}** and **${E.battleName(battle.p2Active)}** take the field!`
+      )
+      .setColor(battle.isAI ? 0x9b59b6 : 0xe74c3c)]
+  });
+
+  await sleep(1500);
+  return beginTurn(battle, null);
 }
 
+// ── AI ────────────────────────────────────────────────────────────────
+
+/**
+ * AI Pokemon now come from the same rarity-weighted pool as wild spawns, so a
+ * random opponent is usually an ordinary species instead of a coin-flip
+ * chance at a box legendary.
+ */
 function generateAIPokemon(playerLevel) {
-  const { generateIVs, randomNature } = require("../utils/helpers");
-  const totalPokemon = 1025;
-  let aiPokemonId, aiData, attempts = 0;
-  do {
-    aiPokemonId = Math.floor(Math.random() * totalPokemon) + 1;
-    aiData = getPokemonById(aiPokemonId);
-    attempts++;
-  } while ((!aiData || !aiData.baseStats) && attempts < 50);
+  const data = getRandomPokemon();
+  if (!data || !data.baseStats) return null;
 
-  if (!aiData) return null;
+  const level = Math.max(5, Math.min(100, playerLevel + Math.floor(Math.random() * 11) - 5));
+  const ivs = generateIVs();
+  const id = -(Math.floor(Math.random() * 1_000_000) + 1);
 
-  const aiLevel = Math.max(5, playerLevel + Math.floor(Math.random() * 11) - 5);
-  const aiIVs = generateIVs();
-  const aiShiny = Math.random() < 0.01;
-
-  const aiRow = {
-    id: -(Math.floor(Math.random() * 100000) + 1), user_id: "AI_TRAINER", pokemon_id: aiPokemonId,
-    level: aiLevel, shiny: aiShiny,
-    iv_hp: aiIVs.hp, iv_atk: aiIVs.atk, iv_def: aiIVs.def,
-    iv_spatk: aiIVs.spatk, iv_spdef: aiIVs.spdef, iv_spd: aiIVs.spd,
+  const row = {
+    id, user_id: "AI_TRAINER", pokemon_id: data.id,
+    level, shiny: Math.random() < 0.01,
+    iv_hp: ivs.hp, iv_atk: ivs.atk, iv_def: ivs.def,
+    iv_spatk: ivs.spatk, iv_spdef: ivs.spdef, iv_spd: ivs.spd,
     nature: randomNature(), nickname: null, held_item: null, favorite: false,
     move1: null, move2: null, move3: null, move4: null
   };
 
-  const aiCanGmax = getGmaxData(aiPokemonId);
-  const aiCanMega = getMegaData(aiPokemonId);
-  if (aiCanGmax && Math.random() < 0.4) aiRow.held_item = "gmax_ring";
-  else if (aiCanMega && Math.random() < 0.4) aiRow.held_item = "mega_stone";
+  if (getGmaxData(data.id) && Math.random() < 0.35) row.held_item = "gmax_ring";
+  else if (getMegaData(data.id) && Math.random() < 0.35) row.held_item = "mega_stone";
+  else if (Math.random() < 0.30) row.held_item = "z_ring";
 
-  return { row: aiRow, data: aiData };
+  return { row, data };
 }
 
 async function startAIBattle(message, userId, channelId) {
-  if (activeBattles.has(channelId)) return message.reply("There's already a battle in this channel!");
+  if (activeBattles.has(channelId)) return message.reply("There's already a battle running in this channel!");
+  const busy = busyChannel(userId);
+  if (busy) return message.reply(`You're already in a battle in <#${busy}>!`);
 
-  const user = await pool.query("SELECT * FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
+  const user = await pool.query("SELECT 1 FROM users WHERE user_id = $1 AND started = TRUE", [userId]);
   if (user.rows.length === 0) return message.reply("You haven't started yet!");
 
-  const p1Pokemon = await pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC LIMIT 20", [userId]);
-  if (p1Pokemon.rows.length < 1) return message.reply("You need at least 1 Pokemon to battle!");
+  const p1Pokemon = await pool.query("SELECT * FROM pokemon WHERE user_id = $1 ORDER BY level DESC, id ASC LIMIT 25", [userId]);
+  if (p1Pokemon.rows.length < 1) return message.reply("You need at least 1 Pokémon to battle!");
 
-  const avgLevel = Math.floor(p1Pokemon.rows.slice(0, 3).reduce((s, p) => s + p.level, 0) / Math.min(3, p1Pokemon.rows.length));
+  const top = p1Pokemon.rows.slice(0, 3);
+  const avgLevel = Math.round(top.reduce((s, p) => s + p.level, 0) / top.length);
 
   const aiTeamData = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 3 && aiTeamData.length < 3; i++) {
     const ai = generateAIPokemon(avgLevel);
     if (ai) aiTeamData.push(ai);
   }
-  if (aiTeamData.length === 0) return message.reply("Failed to generate AI opponent. Try again!");
+  if (aiTeamData.length === 0) return message.reply("Failed to generate an AI opponent — try again!");
 
   const battle = {
     challenger: userId,
     opponent: "AI_TRAINER",
-    status: "pending",
+    status: "selecting",
     channelId,
+    channel: message.channel,
     is3v3: true,
-    p1Team: [],
-    p2Team: [],
-    p1Active: null,
-    p2Active: null,
-    p1Selection: [],
-    p2Selection: [],
+    p1Team: [], p2Team: [],
+    p1Active: null, p2Active: null,
+    p1Selection: [], p2Selection: [],
     p1Pokemon: p1Pokemon.rows,
     p2Pokemon: [],
-    turn: null,
+    turnNumber: 0,
     isAI: true,
     aiTeamData,
-    aiDifficulty: Math.min(1, avgLevel / 100 + 0.2)
+    aiDifficulty: Math.min(0.95, avgLevel / 120 + 0.35)
   };
+  registerBattle(battle);
 
-  activeBattles.set(channelId, battle);
+  const aiNames = aiTeamData
+    .map(a => `${a.row.shiny ? "✨ " : ""}🤖 ${capitalize(a.data.name)} (Lv. ${a.row.level})`)
+    .join(", ");
 
-  const aiNames = aiTeamData.map(a => `${a.row.shiny ? "✨ " : ""}🤖 ${capitalize(a.data.name)} (Lv.${a.row.level})`).join(", ");
+  await message.channel.send({
+    embeds: [new EmbedBuilder()
+      .setTitle("🤖 AI Trainer Challenge!")
+      .setDescription(
+        `An AI Trainer appears with **${aiTeamData.length} Pokémon**!\n\n` +
+        `🤖 ${aiNames}\n\n` +
+        "Select your team below."
+      )
+      .setColor(0x9b59b6)
+      .setFooter({ text: "3v3 — same rules as PvP" })]
+  });
 
-  const challengeEmbed = new EmbedBuilder()
-    .setTitle("🤖 AI Trainer Challenge!")
-    .setDescription(
-      `An AI Trainer appears with a team of **${aiTeamData.length} Pokemon**!\n\n` +
-      `🤖 AI Team: ${aiNames}\n\n` +
-      `Select your team of 3 Pokemon to battle!`
-    )
-    .setColor(0x9b59b6)
-    .setFooter({ text: "3v3 Battle — Same rules as PvP!" });
-
-  await message.channel.send({ embeds: [challengeEmbed] });
-
-  battle.status = "selecting";
-  await collectTeamSelection(message, battle, userId, p1Pokemon.rows, "p1Selection", "Your Team");
-
-  battle.p2Selection = aiTeamData.map(a => a.row.id);
-
-  if (battle.status !== "active") {
-    checkBothReadyAI(message, battle);
+  try {
+    await collectTeamSelection(message, battle, userId, p1Pokemon.rows, "p1Selection", "Your Team");
+    battle.p2Selection = aiTeamData.map(a => a.row.id);
+    await startBattle(message, battle);
+  } catch (err) {
+    await abortBattle(battle, err);
   }
 }
 
-async function checkBothReadyAI(message, battle) {
-  if (battle.p1Selection.length === 0) return;
-  if (battle.status === "active") return;
+function scoreMove(attacker, defender, move) {
+  if (!move) return -1;
+  if (move.isProtect || move.effect?.isProtect) return 12;
 
-  battle.status = "active";
-
-  const p1Rows = await Promise.all(battle.p1Selection.map(async id => {
-    const r = await pool.query("SELECT * FROM pokemon WHERE id = $1", [id]);
-    return r.rows[0];
-  }));
-
-  battle.p1Team = p1Rows.filter(Boolean).map(row => {
-    const data = getPokemonById(row.pokemon_id);
-    return data ? preparePokemonForBattle(row, data) : null;
-  }).filter(Boolean);
-
-  battle.p2Team = battle.aiTeamData.map(a => preparePokemonForBattle(a.row, a.data));
-
-  if (battle.p1Team.length === 0 || battle.p2Team.length === 0) {
-    activeBattles.delete(battle.channelId);
-    return message.channel.send("Battle cancelled — couldn't load Pokemon data.");
+  if (move.category === "status" || !(move.power > 0)) {
+    const eff = move.effect || {};
+    // Healing is worth a lot when hurt, boosts are worth a little when healthy.
+    if (eff.heal) return attacker.currentHp / attacker.maxHp < 0.5 ? 90 : 5;
+    if (eff.status && !defender.status) return 55;
+    if (eff.boost) return 35;
+    return 10;
   }
 
-  battle.p1Active = battle.p1Team[0];
-  battle.p2Active = battle.p2Team[0];
+  const type = move.type || "normal";
+  const eff = getEffectiveness(type, defender.activeTypes || defender.data.types);
+  if (eff === 0) return 0;
 
-  const p1Names = battle.p1Team.map(p => getBattleName(p)).join(", ");
-  const p2Names = battle.p2Team.map(p => `🤖 ${getBattleName(p)}`).join(", ");
+  const atkKey = move.category === "special" ? "spatk" : "atk";
+  const defKey = move.effect?.defensiveStat || (move.category === "special" ? "spdef" : "def");
+  const ratio = E.effStat(attacker, atkKey) / Math.max(1, E.effStat(defender, defKey));
+  const stab = (attacker.activeTypes || attacker.data.types).includes(type) ? 1.5 : 1;
 
-  const revealEmbed = new EmbedBuilder()
-    .setTitle("⚔️ 3v3 AI Battle Begins!")
-    .setDescription(
-      `**<@${battle.challenger}>'s Team:**\n${p1Names}\n\n` +
-      `**🤖 AI Trainer's Team:**\n${p2Names}\n\n` +
-      `First Pokemon sent out!\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
-    )
-    .setColor(0x9b59b6)
-    .setThumbnail(getPokeImage(battle.p1Active))
-    .setImage(getPokeImage(battle.p2Active));
-
-  await message.channel.send({ embeds: [revealEmbed] });
-  await new Promise(r => setTimeout(r, 2000));
-  return startBattleTurn(message, battle, battle.channelId, "AI Battle begins! Choose your move!");
-}
-
-// ── Poketwo-style: both players pick moves simultaneously, then resolve by speed ──
-
-function getSpeed(poke) {
-  const boost = poke.statBoosts?.spd || 0;
-  return calcStat(poke.data.baseStats.spd || poke.data.baseStats.speed || 50, poke.iv_spd, poke.level, boost);
-}
-
-function buildTurnEmbed(battle, actionLog) {
-  const p1 = battle.p1Active;
-  const p2 = battle.p2Active;
-  const p1Name = getBattleName(p1);
-  const p2Name = getBattleName(p2);
-  const p1Dots = battle.is3v3 ? battle.p1Team.map(p => p.currentHp > 0) : null;
-  const p2Dots = battle.is3v3 ? battle.p2Team.map(p => p.currentHp > 0) : null;
-  return { p1Name, p2Name, p1Dots, p2Dots };
-}
-
-function buildPlayerMoveEmbed(battle, playerId, waitingMsg) {
-  const isP1 = playerId === battle.challenger;
-  const poke = isP1 ? battle.p1Active : battle.p2Active;
-  const name = getBattleName(poke);
-  const types = (poke.activeTypes || poke.data.types).map(t => capitalize(t)).join("/");
-
-  const statusLines = [];
-  if (poke.megaEvolved) statusLines.push(`💎 ${name} is Mega Evolved!`);
-  if (poke.gmaxed) statusLines.push(`💍 ${name} is Gigantamaxed! (${poke.gmaxTurns} turns left)`);
-
-  return new EmbedBuilder()
-    .setTitle("⚔️ Choose Your Move!")
-    .setDescription(
-      (statusLines.length ? statusLines.join("\n") + "\n\n" : "") +
-      `**${name}** [${types}] — Lv. ${poke.level}\n` +
-      `HP: **${poke.currentHp}**/${poke.maxHp}\n\n` +
-      (waitingMsg || "Pick your move below. Your opponent is choosing too!") +
-      `\n\n⏱️ 60 seconds to choose`
-    )
-    .setColor(0x3498db)
-    .setThumbnail(getPokeImage(poke))
-    .setFooter({ text: "Moves show: Name (Power/Accuracy)" });
-}
-
-async function startBattleTurn(message, battle, channelId, actionLog) {
-  // Gmax tick for both active pokemon
-  for (const poke of [battle.p1Active, battle.p2Active]) {
-    if (poke.gmaxed) {
-      poke.gmaxTurns--;
-      if (poke.gmaxTurns <= 0) {
-        poke.gmaxed = false;
-        poke.activeTypes = [...poke.data.types];
-        poke.statBoosts = { hp: 0, atk: 0, def: 0, spatk: 0, spdef: 0, spd: 0 };
-        const hpRatio = poke.currentHp / poke.maxHp;
-        poke.maxHp = poke.baseMaxHp;
-        poke.currentHp = Math.max(1, Math.floor(hpRatio * poke.baseMaxHp));
-        actionLog = `${actionLog ? actionLog + "\n" : ""}💍 **${getBattleName(poke)}**'s Gigantamax wore off!`;
-      }
-    }
-  }
-
-  // Show previous turn result image if there's an actionLog
-  if (actionLog) {
-    const { embed: resultEmbed, attachment: resultAttachment } = await buildBattleEmbed(battle, actionLog);
-    const resultOpts = { embeds: [resultEmbed], components: [] };
-    if (resultAttachment) resultOpts.files = [resultAttachment];
-    await message.channel.send(resultOpts);
-    await new Promise(r => setTimeout(r, 1200));
-  }
-
-  // AI battle: collect p1 move via buttons, AI picks simultaneously, then resolve
-  if (battle.isAI) {
-    return startSimultaneousTurnAI(message, battle, channelId);
-  }
-
-  // PvP: send each player their own move selection message (DM-style in channel, ephemeral feel)
-  return startSimultaneousTurnPvP(message, battle, channelId);
-}
-
-async function startSimultaneousTurnPvP(message, battle, channelId) {
-  const p1 = battle.p1Active;
-  const p2 = battle.p2Active;
-
-  // ── Build initial move rows for a pokemon ──
-  function buildInitialRows(poke, prefix) {
-    const rows = [];
-    const moveRow = buildMoveButtons(poke, `${prefix}_move`);
-
-    // Add "Do Nothing / Pass" button to move row
-    moveRow.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`${prefix}_pass`)
-        .setLabel("Pass")
-        .setEmoji("⏭️")
-        .setStyle(ButtonStyle.Secondary)
-    );
-    rows.push(moveRow);
-
-    const canMega = poke.canMega && !poke.megaEvolved && !poke.gmaxed;
-    const canGmax = poke.canGmax && !poke.gmaxed && !poke.megaEvolved;
-    const team = poke === p1 ? battle.p1Team : battle.p2Team;
-    const canSwitch = battle.is3v3 && team.filter(p => p.currentHp > 0 && p !== poke).length > 0;
-
-    if (canMega || canGmax || canSwitch) {
-      const row2 = new ActionRowBuilder();
-      if (canMega) row2.addComponents(new ButtonBuilder().setCustomId(`${prefix}_mega`).setLabel(poke.megaData?.isPrimal ? "Primal Reversion" : "Mega Evolve").setEmoji("💎").setStyle(ButtonStyle.Danger));
-      if (canGmax) row2.addComponents(new ButtonBuilder().setCustomId(`${prefix}_gmax`).setLabel("Gigantamax").setEmoji("💍").setStyle(ButtonStyle.Danger));
-      if (canSwitch) row2.addComponents(new ButtonBuilder().setCustomId(`${prefix}_switch`).setLabel("Switch").setEmoji("🔄").setStyle(ButtonStyle.Secondary));
-      rows.push(row2);
-    }
-    return rows;
-  }
-
-  // ── Shared state ──
-  let p1Choice = null;
-  let p2Choice = null;
-  let p1Transform = "";
-  let p2Transform = "";
-  let resolved = false;
-
-  // Send battle image (no action log — just the field)
-  const { embed: turnEmbed, attachment: turnAttachment } = await buildBattleEmbed(battle, null);
-  turnEmbed.setTitle("⚔️ Both trainers — choose your move!");
-  turnEmbed.setDescription(
-    `<@${battle.challenger}> and <@${battle.opponent}> — both pick your move below!\n` +
-    `Your choice is **hidden** from your opponent until both have locked in.\n\n⏱️ 60 seconds`
-  );
-  const turnOpts = { content: `<@${battle.challenger}> <@${battle.opponent}>`, embeds: [turnEmbed], components: [] };
-  if (turnAttachment) turnOpts.files = [turnAttachment];
-  await message.channel.send(turnOpts);
-
-  // Individual selector messages
-  const p1Embed = buildPlayerMoveEmbed(battle, battle.challenger, null);
-  const p2Embed = buildPlayerMoveEmbed(battle, battle.opponent, null);
-  const p1Rows = buildInitialRows(p1, "p1mv");
-  const p2Rows = buildInitialRows(p2, "p2mv");
-
-  const p1Msg = await message.channel.send({ content: `<@${battle.challenger}> — your move:`, embeds: [p1Embed], components: p1Rows });
-  const p2Msg = await message.channel.send({ content: `<@${battle.opponent}> — your move:`, embeds: [p2Embed], components: p2Rows });
-
-  // ── Try to resolve when both choices are in ──
-  async function tryResolve() {
-    if (resolved) return;
-    if (!p1Choice || !p2Choice) return;
-    resolved = true;
-    // Disable both messages silently (no move names shown)
-    await p1Msg.edit({ embeds: [new EmbedBuilder().setDescription("✅ Both trainers have chosen! Resolving...").setColor(0x2ecc71)], components: [] }).catch(() => {});
-    await p2Msg.edit({ embeds: [new EmbedBuilder().setDescription("✅ Both trainers have chosen! Resolving...").setColor(0x2ecc71)], components: [] }).catch(() => {});
-    await resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Choice, p2Choice, p1Transform, p2Transform);
-  }
-
-  // ── Show move buttons after a transform (mega/gmax) — MUST choose move before resolving ──
-  async function showMoveSelectionAfterTransform(msg, poke, prefix, isP1, transformText) {
-    const afterPrefix = `${prefix}_after`;
-    const moveRow = buildMoveButtons(poke, `${afterPrefix}_move`);
-    moveRow.addComponents(
-      new ButtonBuilder().setCustomId(`${afterPrefix}_pass`).setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary)
-    );
-    const rows = [moveRow];
-    await msg.edit({
-      embeds: [buildPlayerMoveEmbed(battle, isP1 ? battle.challenger : battle.opponent, `${transformText}\n\n**Now choose your move:**`)],
-      components: rows
-    }).catch(() => {});
-
-    // New collector — only responds to this player, only for afterPrefix buttons
-    const afterCollector = msg.createMessageComponentCollector({
-      filter: i => i.user.id === (isP1 ? battle.challenger : battle.opponent) && i.customId.startsWith(afterPrefix),
-      time: 60000,
-      max: 1
-    });
-
-    afterCollector.on("collect", async (mi) => {
-      let move;
-      if (mi.customId === `${afterPrefix}_pass`) {
-        move = { isPass: true, name: "Pass" };
-      } else {
-        const moveIdx = parseInt(mi.customId.replace(`${afterPrefix}_move_`, ""));
-        move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
-      }
-      if (isP1) p1Choice = move; else p2Choice = move;
-      // Show locked-in WITHOUT revealing the move name to channel
-      await mi.update({
-        embeds: [new EmbedBuilder().setDescription("✅ Move locked in! Waiting for opponent...").setColor(0x2ecc71)],
-        components: []
-      }).catch(() => {});
-      tryResolve();
-    });
-
-    afterCollector.on("end", c => {
-      if (c.size === 0 && !(isP1 ? p1Choice : p2Choice)) {
-        // Auto-pick first move on timeout
-        const move = getCurrentMoves(poke)[0];
-        if (isP1) p1Choice = move; else p2Choice = move;
-        tryResolve();
-      }
-    });
-  }
-
-  // ── Handle a button click from either player ──
-  async function handleChoice(interaction, poke, prefix, isP1) {
-    const id = interaction.customId;
-    const msg = isP1 ? p1Msg : p2Msg;
-    const playerId = isP1 ? battle.challenger : battle.opponent;
-
-    // Pass / Do Nothing
-    if (id === `${prefix}_pass`) {
-      if (isP1) p1Choice = { isPass: true, name: "Pass" };
-      else p2Choice = { isPass: true, name: "Pass" };
-      await interaction.update({
-        embeds: [new EmbedBuilder().setDescription("✅ Passing this turn! Waiting for opponent...").setColor(0x95a5a6)],
-        components: []
-      });
-      tryResolve();
-      return;
-    }
-
-    // Switch
-    if (id === `${prefix}_switch`) {
-      const team = isP1 ? battle.p1Team : battle.p2Team;
-      const alive = team.filter(p => p.currentHp > 0 && p !== poke);
-      const switchRow = new ActionRowBuilder();
-      alive.forEach((p, i) => switchRow.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${prefix}_sw_${i}`)
-          .setLabel(`${getBattleName(p)} (HP:${p.currentHp}/${p.maxHp})`.substring(0, 80))
-          .setStyle(ButtonStyle.Primary)
-      ));
-      // Show switch options to this player only — not revealing to channel
-      await interaction.update({
-        embeds: [buildPlayerMoveEmbed(battle, playerId, "Choose who to switch in:")],
-        components: [switchRow]
-      });
-
-      const swCollector = msg.createMessageComponentCollector({
-        filter: i => i.user.id === playerId && i.customId.startsWith(`${prefix}_sw_`),
-        time: 30000, max: 1
-      });
-      swCollector.on("collect", async (si) => {
-        const idx = parseInt(si.customId.replace(`${prefix}_sw_`, ""));
-        const switchTo = alive[idx];
-        if (!switchTo) return;
-        if (isP1) battle.p1Active = switchTo;
-        else battle.p2Active = switchTo;
-        const tf = `🔄 **${getBattleName(poke)}** → **${getBattleName(switchTo)}**!`;
-        if (isP1) { p1Transform = tf; p1Choice = { isSwitchOnly: true }; }
-        else { p2Transform = tf; p2Choice = { isSwitchOnly: true }; }
-        await si.update({
-          embeds: [new EmbedBuilder().setDescription("✅ Switch locked in! Waiting for opponent...").setColor(0x2ecc71)],
-          components: []
-        });
-        tryResolve();
-      });
-      swCollector.on("end", c => {
-        if (c.size === 0) {
-          if (isP1) p1Choice = { isSwitchOnly: true };
-          else p2Choice = { isSwitchOnly: true };
-          tryResolve();
-        }
-      });
-      return;
-    }
-
-    // Mega Evolve — apply transform, THEN force move selection
-    if (id === `${prefix}_mega`) {
-      const megaData = poke.megaData;
-      poke.megaEvolved = true; poke.canMega = false;
-      poke.activeTypes = megaData.types || poke.activeTypes;
-      poke.statBoosts = megaData.statBoost;
-      const newMaxHp = poke.maxHp + Math.floor((megaData.statBoost?.hp || 0) * poke.level / 100);
-      if (newMaxHp > poke.maxHp) { poke.currentHp += (newMaxHp - poke.maxHp); poke.maxHp = newMaxHp; }
-      const tname = megaData.isPrimal ? "Primal Reversion" : "Mega Evolution";
-      const tf = `💎 **${getBattleName(poke)}** triggered ${tname}!`;
-      if (isP1) p1Transform = tf; else p2Transform = tf;
-      // Acknowledge interaction first, then edit to show move selection
-      await interaction.deferUpdate().catch(() => {});
-      await showMoveSelectionAfterTransform(msg, poke, prefix, isP1, tf);
-      return;
-    }
-
-    // Gigantamax — apply transform, THEN force move selection
-    if (id === `${prefix}_gmax`) {
-      const gmaxData = poke.gmaxData;
-      poke.gmaxed = true; poke.canGmax = false; poke.gmaxTurns = 3;
-      poke.currentHp = Math.floor(poke.currentHp * 1.5);
-      poke.maxHp = Math.floor(poke.maxHp * 1.5);
-      const tf = `💍 **${getBattleName(poke)}** Gigantamaxed into **${gmaxData.name}**! G-Max moves active for 3 turns!`;
-      if (isP1) p1Transform = tf; else p2Transform = tf;
-      await interaction.deferUpdate().catch(() => {});
-      await showMoveSelectionAfterTransform(msg, poke, prefix, isP1, tf);
-      return;
-    }
-
-    // Normal move button
-    if (id.startsWith(`${prefix}_move_`)) {
-      const moveIdx = parseInt(id.replace(`${prefix}_move_`, ""));
-      const move = getCurrentMoves(poke)[moveIdx] || getCurrentMoves(poke)[0];
-      if (isP1) p1Choice = move; else p2Choice = move;
-      // IMPORTANT: Don't reveal move name in message — just show locked in
-      await interaction.update({
-        embeds: [new EmbedBuilder().setDescription("✅ Move locked in! Waiting for opponent...").setColor(0x2ecc71)],
-        components: []
-      });
-      tryResolve();
-      return;
-    }
-  }
-
-  // ── Collectors — each only responds to correct player ──
-  const p1Collector = p1Msg.createMessageComponentCollector({
-    filter: i => i.user.id === battle.challenger && !i.customId.startsWith("p1mv_after") && !i.customId.startsWith("p1mv_sw_"),
-    time: 60000, max: 1
-  });
-  const p2Collector = p2Msg.createMessageComponentCollector({
-    filter: i => i.user.id === battle.opponent && !i.customId.startsWith("p2mv_after") && !i.customId.startsWith("p2mv_sw_"),
-    time: 60000, max: 1
-  });
-
-  p1Collector.on("collect", i => handleChoice(i, p1, "p1mv", true));
-  p2Collector.on("collect", i => handleChoice(i, p2, "p2mv", false));
-
-  p1Collector.on("end", c => {
-    if (c.size === 0 && !p1Choice) {
-      p1Choice = getCurrentMoves(p1)[0];
-      tryResolve();
-    }
-  });
-  p2Collector.on("end", c => {
-    if (c.size === 0 && !p2Choice) {
-      p2Choice = getCurrentMoves(p2)[0];
-      tryResolve();
-    }
-  });
-}
-
-async function startSimultaneousTurnAI(message, battle, channelId) {
-  const p1 = battle.p1Active;
-  const p2 = battle.p2Active; // AI
-
-  // AI picks its move immediately
-  const aiMove = pickAIMove(battle, p2, p1);
-  let aiTransform = "";
-
-  // Handle AI mega/gmax
-  if (p2.canGmax && !p2.gmaxed && !p2.megaEvolved && Math.random() < 0.6) {
-    p2.gmaxed = true; p2.canGmax = false; p2.gmaxTurns = 3;
-    p2.currentHp = Math.floor(p2.currentHp * 1.5);
-    p2.maxHp = Math.floor(p2.maxHp * 1.5);
-    aiTransform = `💍 🤖 **${getBattleName(p2)}** Gigantamaxed into **${p2.gmaxData.name}**!`;
-  } else if (p2.canMega && !p2.megaEvolved && !p2.gmaxed && Math.random() < 0.6) {
-    const md = p2.megaData;
-    p2.megaEvolved = true; p2.canMega = false;
-    p2.activeTypes = md.types || p2.activeTypes;
-    p2.statBoosts = md.statBoost;
-    aiTransform = `💎 🤖 **${getBattleName(p2)}** ${md.isPrimal ? "underwent Primal Reversion" : "Mega Evolved"}!`;
-  }
-
-  // Show battle image + player move selector
-  const { embed: turnEmbed, attachment: turnAttachment } = await buildBattleEmbed(battle, null);
-  turnEmbed.setTitle("⚔️ Choose Your Move!");
-  turnEmbed.setDescription(`<@${battle.challenger}> — pick your move! The AI is ready.\n\n⏱️ 60 seconds`);
-  const turnOpts = { embeds: [turnEmbed], components: [] };
-  if (turnAttachment) turnOpts.files = [turnAttachment];
-  await message.channel.send(turnOpts);
-
-  const p1Embed = buildPlayerMoveEmbed(battle, battle.challenger, "🤖 AI has chosen its move!");
-  const moveRow = buildMoveButtons(p1, "p1mv_move");
-  moveRow.addComponents(
-    new ButtonBuilder().setCustomId("p1mv_pass").setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary)
-  );
-  const moveRows = [moveRow];
-  const canMega = p1.canMega && !p1.megaEvolved && !p1.gmaxed;
-  const canGmax = p1.canGmax && !p1.gmaxed && !p1.megaEvolved;
-  if (canMega || canGmax) {
-    const row2 = new ActionRowBuilder();
-    if (canMega) row2.addComponents(new ButtonBuilder().setCustomId("p1mv_mega").setLabel(p1.megaData?.isPrimal ? "Primal Reversion" : "Mega Evolve").setEmoji("💎").setStyle(ButtonStyle.Danger));
-    if (canGmax) row2.addComponents(new ButtonBuilder().setCustomId("p1mv_gmax").setLabel("Gigantamax").setEmoji("💍").setStyle(ButtonStyle.Danger));
-    moveRows.push(row2);
-  }
-
-  const p1Msg = await message.channel.send({ content: `<@${battle.challenger}>`, embeds: [p1Embed], components: moveRows });
-  let p1Transform = "";
-
-  const collector = p1Msg.createMessageComponentCollector({
-    filter: i => i.user.id === battle.challenger,
-    time: 60000, max: 1
-  });
-
-  async function gotP1Move(p1Move) {
-    await p1Msg.edit({ embeds: [new EmbedBuilder().setDescription("✅ Move selected! Resolving turn...").setColor(0x2ecc71)], components: [] }).catch(() => {});
-    await resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Move, aiMove, p1Transform, aiTransform);
-  }
-
-  collector.on("collect", async (interaction) => {
-    const id = interaction.customId;
-
-    // Pass
-    if (id === "p1mv_pass") {
-      await interaction.update({ components: [] });
-      gotP1Move({ isPass: true, name: "Pass" });
-      return;
-    }
-
-    // Mega evolve — apply, then FORCE move selection
-    if (id === "p1mv_mega") {
-      const md = p1.megaData;
-      p1.megaEvolved = true; p1.canMega = false;
-      p1.activeTypes = md.types || p1.activeTypes;
-      p1.statBoosts = md.statBoost;
-      const newMaxHp = p1.maxHp + Math.floor((md.statBoost?.hp || 0) * p1.level / 100);
-      if (newMaxHp > p1.maxHp) { p1.currentHp += (newMaxHp - p1.maxHp); p1.maxHp = newMaxHp; }
-      p1Transform = `💎 **${getBattleName(p1)}** ${md.isPrimal ? "underwent Primal Reversion" : "Mega Evolved"}!`;
-      const afterMoveRow = buildMoveButtons(p1, "p1mv_after_move");
-      afterMoveRow.addComponents(new ButtonBuilder().setCustomId("p1mv_after_pass").setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary));
-      await interaction.update({
-        embeds: [buildPlayerMoveEmbed(battle, battle.challenger, `${p1Transform}\n\n**Now choose your move:**`)],
-        components: [afterMoveRow]
-      });
-      const mc = p1Msg.createMessageComponentCollector({
-        filter: i => i.user.id === battle.challenger && (i.customId.startsWith("p1mv_after_move_") || i.customId === "p1mv_after_pass"),
-        time: 60000, max: 1
-      });
-      mc.on("collect", async mi => {
-        const mv = mi.customId === "p1mv_after_pass"
-          ? { isPass: true, name: "Pass" }
-          : getCurrentMoves(p1)[parseInt(mi.customId.replace("p1mv_after_move_", ""))] || getCurrentMoves(p1)[0];
-        await mi.update({ components: [] });
-        gotP1Move(mv);
-      });
-      mc.on("end", c => { if (c.size === 0) gotP1Move(getCurrentMoves(p1)[0]); });
-      return;
-    }
-
-    // Gmax — apply, then FORCE move selection
-    if (id === "p1mv_gmax") {
-      p1.gmaxed = true; p1.canGmax = false; p1.gmaxTurns = 3;
-      p1.currentHp = Math.floor(p1.currentHp * 1.5); p1.maxHp = Math.floor(p1.maxHp * 1.5);
-      p1Transform = `💍 **${getBattleName(p1)}** Gigantamaxed into **${p1.gmaxData.name}**!`;
-      const afterMoveRow = buildMoveButtons(p1, "p1mv_after_move");
-      afterMoveRow.addComponents(new ButtonBuilder().setCustomId("p1mv_after_pass").setLabel("Pass").setEmoji("⏭️").setStyle(ButtonStyle.Secondary));
-      await interaction.update({
-        embeds: [buildPlayerMoveEmbed(battle, battle.challenger, `${p1Transform}\n\n**Choose your G-Max move:**`)],
-        components: [afterMoveRow]
-      });
-      const gc = p1Msg.createMessageComponentCollector({
-        filter: i => i.user.id === battle.challenger && (i.customId.startsWith("p1mv_after_move_") || i.customId === "p1mv_after_pass"),
-        time: 60000, max: 1
-      });
-      gc.on("collect", async mi => {
-        const mv = mi.customId === "p1mv_after_pass"
-          ? { isPass: true, name: "Pass" }
-          : getCurrentMoves(p1)[parseInt(mi.customId.replace("p1mv_after_move_", ""))] || getCurrentMoves(p1)[0];
-        await mi.update({ components: [] });
-        gotP1Move(mv);
-      });
-      gc.on("end", c => { if (c.size === 0) gotP1Move(getCurrentMoves(p1)[0]); });
-      return;
-    }
-
-    // Normal move
-    if (id.startsWith("p1mv_move_")) {
-      const moveIdx = parseInt(id.replace("p1mv_move_", ""));
-      const move = getCurrentMoves(p1)[moveIdx] || getCurrentMoves(p1)[0];
-      await interaction.update({ components: [] });
-      gotP1Move(move);
-    }
-  });
-
-  collector.on("end", c => {
-    if (c.size === 0) gotP1Move(getCurrentMoves(p1)[0]);
-  });
+  return move.power * eff * stab * ratio * ((move.accuracy || 100) / 100);
 }
 
 function pickAIMove(battle, attacker, defender) {
-  const moves = getCurrentMoves(attacker);
-  const difficulty = battle.aiDifficulty || 0.5;
-  if (Math.random() < difficulty) {
-    let best = moves[0]; let bestScore = -1;
-    for (const m of moves) {
-      if (m.isProtect) continue;
-      const eff = getEffectiveness(m.type || attacker.activeTypes[0] || "normal", defender.activeTypes || defender.data.types);
-      const stab = (attacker.activeTypes || attacker.data.types).includes(m.type || attacker.activeTypes[0] || "normal");
-      const score = m.power * eff * (stab ? 1.5 : 1) * ((m.accuracy || 100) / 100);
-      if (score > bestScore) { bestScore = score; best = m; }
-    }
-    return best;
+  const usable = E.currentMoves(attacker).filter(m => (m.pp ?? 0) > 0);
+  if (!usable.length) return { ...E.STRUGGLE };
+
+  const difficulty = battle.aiDifficulty ?? 0.5;
+  if (Math.random() >= difficulty) {
+    const random = usable.filter(m => !(m.isProtect || m.effect?.isProtect));
+    return random[Math.floor(Math.random() * random.length)] || usable[0];
   }
-  const valid = moves.filter(m => !m.isProtect);
-  return valid[Math.floor(Math.random() * valid.length)] || moves[0];
+
+  let best = usable[0];
+  let bestScore = -Infinity;
+  for (const move of usable) {
+    const score = scoreMove(attacker, defender, move);
+    if (score > bestScore) { bestScore = score; best = move; }
+  }
+  return best;
 }
 
-async function resolveSimultaneousMoves(message, battle, channelId, p1, p2, p1Move, p2Move, p1Transform, p2Transform) {
-  const p1Name = getBattleName(p1);
-  const p2Name = getBattleName(p2);
+// ── Turn loop ─────────────────────────────────────────────────────────
 
-  // Determine speed order
-  const p1Speed = getSpeed(p1);
-  const p2Speed = getSpeed(p2);
-  const p1GoesFirst = p1Speed >= p2Speed; // tie = p1 first
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  const lines = [];
+async function beginTurn(battle, actionLog) {
+  if (!activeBattles.has(battle.channelId)) return;
+  battle.lastActivity = Date.now();
+  battle.turnNumber = (battle.turnNumber || 0) + 1;
 
-  // Transform announcements first
-  if (p1GoesFirst) {
-    if (p1Transform) lines.push(p1Transform);
-    if (p2Transform) lines.push(p2Transform);
-  } else {
-    if (p2Transform) lines.push(p2Transform);
-    if (p1Transform) lines.push(p1Transform);
+  try {
+    if (actionLog) {
+      await sendField(battle, actionLog);
+      await sleep(1200);
+    }
+
+    if (battle.turnNumber > MAX_TURNS) {
+      return finishBattle(battle, judgeOnHp(battle), `⏳ The battle reached the ${MAX_TURNS}-turn limit!`, { timeLimit: true });
+    }
+
+    E.resetTurnFlags(battle.p1Active);
+    E.resetTurnFlags(battle.p2Active);
+
+    if (battle.isAI) return collectTurnAI(battle);
+    return collectTurnPvP(battle);
+  } catch (err) {
+    return abortBattle(battle, err);
   }
-
-  lines.push(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
-  // Switch-only actions
-  const p1SwitchOnly = p1Move?.isSwitchOnly;
-  const p2SwitchOnly = p2Move?.isSwitchOnly;
-
-  if (p1SwitchOnly && p1Transform) lines.push(p1Transform);
-  if (p2SwitchOnly && p2Transform) lines.push(p2Transform);
-
-  // Execute in speed order and collect results
-  let p1Fainted = false;
-  let p2Fainted = false;
-
-  function executeMoveCalc(attacker, defender, move) {
-    if (!move || move.isSwitchOnly) return null;
-
-    if (move.isPass) {
-      return { text: `⏭️ **${getBattleName(attacker)}** passed their turn!`, damage: 0, passed: true };
-    }
-
-    // Recharge turn (after Eternabeam / Hyper Beam etc.)
-    if (attacker.mustRecharge) {
-      attacker.mustRecharge = false;
-      return { text: `⚡ **${getBattleName(attacker)}** must recharge and cannot move!`, damage: 0, passed: true };
-    }
-
-    if (move.isProtect) {
-      return { text: `🛡️ **${getBattleName(attacker)}** used **${move.name}**! It's protecting itself!`, damage: 0, protected: true };
-    }
-
-    const atkBoost = attacker.statBoosts?.atk || 0;
-    const defBoost = defender.statBoosts?.def || 0;
-    const atkStat = calcStat(attacker.data.baseStats.atk, attacker.iv_atk, attacker.level, atkBoost);
-    const defStat = calcStat(defender.data.baseStats.def, defender.iv_def, defender.level, defBoost);
-    const moveType = move.type || attacker.activeTypes[0] || "normal";
-    const effectiveness = getEffectiveness(moveType, defender.activeTypes || defender.data.types);
-    const stab = (attacker.activeTypes || attacker.data.types).includes(moveType);
-    const hit = move.neverMiss ? true : Math.random() * 100 <= (move.accuracy || 100);
-
-    if (!hit) {
-      return { text: `**${getBattleName(attacker)}** used **${move.name}** — but it missed!`, damage: 0, missed: true };
-    }
-
-    let damage = calcDamage(attacker.level, move.power, atkStat, defStat, effectiveness, stab);
-    if (attacker.gmaxed) damage = Math.floor(damage * 1.3);
-    // Hand-held Color Pouch: +20% boost to Fairy and Water moves
-    if (attacker.heldItem === "hand_held_color_pouch" && (move.type === "fairy" || move.type === "water")) {
-      damage = Math.floor(damage * 1.2);
-    }
-
-    let effectText = "";
-    if (effectiveness === 0) { effectText = " ❌ No effect!"; damage = 0; }
-    else if (effectiveness > 1) effectText = " 💥 Super effective!";
-    else if (effectiveness < 1) effectText = " 😐 Not very effective...";
-
-    // Recharge moves — attacker must skip next turn
-    if (move.recharge) {
-      attacker.mustRecharge = true;
-    }
-
-    return {
-      text: `**${getBattleName(attacker)}** used **${move.name}**!${effectText} Dealt **${damage}** dmg!${move.recharge ? "\n⚡ *Must recharge next turn!*" : ""}`,
-      damage,
-      effectiveness
-    };
-  }
-
-  // First mover
-  const first = p1GoesFirst ? p1 : p2;
-  const second = p1GoesFirst ? p2 : p1;
-  const firstMove = p1GoesFirst ? p1Move : p2Move;
-  const secondMove = p1GoesFirst ? p2Move : p1Move;
-  const firstIsP1 = p1GoesFirst;
-
-  const speedLabel = p1GoesFirst
-    ? `⚡ **${getBattleName(p1)}** is faster! (${p1Speed} vs ${p2Speed} Spd)`
-    : `⚡ **${getBattleName(p2)}** is faster! (${p2Speed} vs ${p1Speed} Spd)`;
-  lines.push(speedLabel);
-  lines.push("");
-
-  // First move
-  const r1 = executeMoveCalc(first, second, firstMove);
-  if (r1) {
-    lines.push(`🔹 ${r1.text}`);
-    if (r1.damage > 0) {
-      second.currentHp = Math.max(0, second.currentHp - r1.damage);
-      if (second === p2) p2Fainted = second.currentHp <= 0;
-      else p1Fainted = second.currentHp <= 0;
-    }
-    // Show HP after first move
-    const hpTarget = second.currentHp;
-    const hpMax = second.maxHp;
-    const pct = hpTarget / hpMax;
-    const bar = `[${"█".repeat(Math.round(pct * 10))}${"░".repeat(10 - Math.round(pct * 10))}]`;
-    lines.push(`   └─ ${getBattleName(second)} HP: **${hpTarget}**/${hpMax} \`${bar}\``);
-  }
-
-  // Second move only executes if second pokemon didn't faint
-  const secondFainted = firstIsP1 ? p2Fainted : p1Fainted;
-  if (!secondFainted) {
-    lines.push("");
-    const r2 = executeMoveCalc(second, first, secondMove);
-    if (r2) {
-      lines.push(`🔸 ${r2.text}`);
-      if (r2.damage > 0) {
-        first.currentHp = Math.max(0, first.currentHp - r2.damage);
-        if (first === p1) p1Fainted = first.currentHp <= 0;
-        else p2Fainted = first.currentHp <= 0;
-      }
-      const hpTarget = first.currentHp;
-      const hpMax = first.maxHp;
-      const pct = hpTarget / hpMax;
-      const bar = `[${"█".repeat(Math.round(pct * 10))}${"░".repeat(10 - Math.round(pct * 10))}]`;
-      lines.push(`   └─ ${getBattleName(first)} HP: **${hpTarget}**/${hpMax} \`${bar}\``);
-    }
-  }
-
-  const actionLog = lines.join("\n");
-
-  // Check faint conditions
-  if (p1Fainted || p2Fainted) {
-    // Show the result image with final HP
-    const { embed: faintEmbed, attachment: faintAttach } = await buildBattleEmbed(battle, actionLog);
-    const faintOpts = { embeds: [faintEmbed], components: [] };
-    if (faintAttach) faintOpts.files = [faintAttach];
-    await message.channel.send(faintOpts);
-    await new Promise(r => setTimeout(r, 1000));
-
-    if (p1Fainted && p2Fainted) {
-      // Both faint — check teams
-      const p1Alive = battle.p1Team.filter(p => p.currentHp > 0);
-      const p2Alive = battle.p2Team.filter(p => p.currentHp > 0);
-      if (p1Alive.length === 0 && p2Alive.length === 0) {
-        return endBattle(null, battle, channelId, p1, p2, true, message, actionLog + "\n\n💀 Both Pokemon fainted! It's a draw!");
-      }
-    }
-
-    if (p2Fainted) {
-      lines.push(`\n💀 **${getBattleName(p2)}** fainted!`);
-      return handleFaint(null, battle, channelId, p1, p2, true, message, actionLog + `\n💀 **${getBattleName(p2)}** fainted!`);
-    }
-    if (p1Fainted) {
-      lines.push(`\n💀 **${getBattleName(p1)}** fainted!`);
-      return handleFaint(null, battle, channelId, p2, p1, false, message, actionLog + `\n💀 **${getBattleName(p1)}** fainted!`);
-    }
-  }
-
-  // No faints — next turn (pass actionLog to show image at start of next turn)
-  await new Promise(r => setTimeout(r, battle.isAI ? 1500 : 800));
-  startBattleTurn(message, battle, channelId, actionLog);
 }
 
-async function handleFaint(interaction, battle, channelId, attacker, defender, isP1Turn, message, actionLog) {
-  const defenderTeam = isP1Turn ? battle.p2Team : battle.p1Team;
-  const defenderOwner = isP1Turn ? battle.opponent : battle.challenger;
+/** Whoever has more remaining team HP takes a time-limit win; equal is a draw. */
+function judgeOnHp(battle) {
+  const total = team => team.reduce((s, p) => s + p.currentHp / p.maxHp, 0);
+  const a = total(battle.p1Team);
+  const b = total(battle.p2Team);
+  if (Math.abs(a - b) < 0.01) return null;
+  return a > b ? 1 : 2;
+}
 
-  const aliveDefenders = defenderTeam.filter(p => p.currentHp > 0);
+async function collectTurnPvP(battle) {
+  const p1 = battle.p1Active;
+  const p2 = battle.p2Active;
 
-  if (aliveDefenders.length === 0) {
-    return endBattle(null, battle, channelId, attacker, defender, isP1Turn, message, actionLog);
-  }
+  const state = {
+    p1Choice: forcedChoice(p1),
+    p2Choice: forcedChoice(p2),
+    p1Transform: "",
+    p2Transform: "",
+    resolved: false
+  };
 
-  // AI auto-switches
-  if (battle.isAI && defenderOwner === "AI_TRAINER") {
-    const nextPoke = aliveDefenders[0];
-    if (isP1Turn) battle.p2Active = nextPoke;
-    else battle.p1Active = nextPoke;
-    const switchText = `${actionLog}\n🤖 AI sent out **${getBattleName(nextPoke)}**!`;
-    await message.channel.send({ embeds: [new EmbedBuilder().setDescription(switchText).setColor(0xff9900)] });
-    await new Promise(r => setTimeout(r, 1500));
-    return startBattleTurn(message, battle, channelId, null);
-  }
-
-  // Player must choose next pokemon
-  const switchRow = new ActionRowBuilder();
-  aliveDefenders.forEach((p, i) => {
-    switchRow.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`faintswitch_${i}`)
-        .setLabel(`${getBattleName(p)} (Lv.${p.level} HP:${p.currentHp}/${p.maxHp})`.substring(0, 80))
-        .setStyle(ButtonStyle.Primary)
+  const fieldEmbed = await buildFieldEmbed(battle, null);
+  fieldEmbed.embed
+    .setTitle(`⚔️ Turn ${battle.turnNumber} — choose your move!`)
+    .setDescription(
+      `<@${battle.challenger}> vs <@${battle.opponent}>\n` +
+      "Both trainers pick at the same time. Your choice stays hidden until both are locked in.\n\n" +
+      `⏱️ ${CHOICE_TIMEOUT / 1000} seconds`
     );
+  const fieldOpts = {
+    content: `<@${battle.challenger}> <@${battle.opponent}>`,
+    embeds: [fieldEmbed.embed],
+    components: []
+  };
+  if (fieldEmbed.attachment) fieldOpts.files = [fieldEmbed.attachment];
+  await battle.channel.send(fieldOpts);
+
+  async function tryResolve() {
+    if (state.resolved) return;
+    if (!state.p1Choice || !state.p2Choice) return;
+    state.resolved = true;
+    await resolveTurn(battle, state);
+  }
+
+  const messages = {};
+
+  for (const side of [1, 2]) {
+    const poke = side === 1 ? p1 : p2;
+    const playerId = side === 1 ? battle.challenger : battle.opponent;
+    const prefix = side === 1 ? "p1mv" : "p2mv";
+    const preset = side === 1 ? state.p1Choice : state.p2Choice;
+
+    if (preset) {
+      // Locked into recharging or a charge move — no choice to make.
+      await battle.channel.send({
+        embeds: [lockedEmbed(
+          `<@${playerId}> — **${E.battleName(poke)}** is locked into **${preset.name}** this turn.`,
+          0xe67e22
+        )]
+      });
+      continue;
+    }
+
+    messages[side] = await battle.channel.send({
+      content: `<@${playerId}> — your action:`,
+      embeds: [buildChooseEmbed(battle, side, null)],
+      components: buildActionRows(battle, poke, prefix)
+    });
+  }
+
+  await tryResolve();
+  if (state.resolved) return;
+
+  for (const side of [1, 2]) {
+    const msg = messages[side];
+    if (!msg) continue;
+    attachChoiceCollector(battle, state, side, msg, tryResolve);
+  }
+}
+
+/** Wires up one player's buttons: move / pass / switch / mega / gmax. */
+function attachChoiceCollector(battle, state, side, msg, tryResolve) {
+  const prefix = side === 1 ? "p1mv" : "p2mv";
+  const playerId = side === 1 ? battle.challenger : battle.opponent;
+  const poke = side === 1 ? battle.p1Active : battle.p2Active;
+  const setChoice = (choice) => { if (side === 1) state.p1Choice = choice; else state.p2Choice = choice; };
+  const setTransform = (text) => { if (side === 1) state.p1Transform = text; else state.p2Transform = text; };
+  const getChoice = () => (side === 1 ? state.p1Choice : state.p2Choice);
+
+  const lockIn = async (interaction, text, color) => {
+    battle.lastActivity = Date.now();
+    await interaction.update({ embeds: [lockedEmbed(text, color)], components: [] }).catch(() => {});
+  };
+
+  const collector = msg.createMessageComponentCollector({
+    filter: i => i.user.id === playerId && i.customId.startsWith(`${prefix}_`),
+    time: CHOICE_TIMEOUT
   });
 
-  const switchEmbed = new EmbedBuilder()
-    .setTitle("💀 Pokémon Fainted!")
-    .setDescription(`<@${defenderOwner}>, your Pokémon fainted! Choose your next one:`)
-    .setColor(0xe74c3c);
+  collector.on("collect", async (interaction) => {
+    const id = interaction.customId;
+    try {
+      if (getChoice()) {
+        return interaction.reply({ content: "You've already locked in this turn.", ephemeral: true }).catch(() => {});
+      }
 
-  const switchMsg = await message.channel.send({ content: `<@${defenderOwner}>`, embeds: [switchEmbed], components: [switchRow] });
+      // ── Pass ──
+      if (id === `${prefix}_pass`) {
+        setChoice({ isPass: true, name: "Pass" });
+        await lockIn(interaction, "⏭️ Passing this turn — waiting for your opponent…", 0x95a5a6);
+        collector.stop("chosen");
+        return tryResolve();
+      }
 
-  const switchCollector = switchMsg.createMessageComponentCollector({
-    filter: (i) => i.user.id === defenderOwner,
-    time: 30000,
-    max: 1
+      // ── Switch ──
+      if (id === `${prefix}_switch`) {
+        const team = side === 1 ? battle.p1Team : battle.p2Team;
+        const bench = team.filter(p => p.currentHp > 0 && p !== poke);
+        const row = new ActionRowBuilder();
+        bench.forEach((p, i) => row.addComponents(new ButtonBuilder()
+          .setCustomId(`${prefix}_sw_${i}`)
+          .setLabel(`${E.battleName(p)} · ${p.currentHp}/${p.maxHp} HP`.slice(0, 80))
+          .setStyle(ButtonStyle.Primary)));
+        row.addComponents(new ButtonBuilder()
+          .setCustomId(`${prefix}_swback`).setLabel("Back").setStyle(ButtonStyle.Secondary));
+
+        await interaction.update({
+          embeds: [buildChooseEmbed(battle, side, "Choose who to send in:")],
+          components: [row]
+        }).catch(() => {});
+        return;
+      }
+
+      if (id === `${prefix}_swback`) {
+        await interaction.update({
+          embeds: [buildChooseEmbed(battle, side, null)],
+          components: buildActionRows(battle, poke, prefix)
+        }).catch(() => {});
+        return;
+      }
+
+      if (id.startsWith(`${prefix}_sw_`)) {
+        const team = side === 1 ? battle.p1Team : battle.p2Team;
+        const bench = team.filter(p => p.currentHp > 0 && p !== poke);
+        const target = bench[parseInt(id.replace(`${prefix}_sw_`, ""), 10)];
+        if (!target) return interaction.deferUpdate().catch(() => {});
+
+        E.onSwitchOut(poke);
+        if (side === 1) battle.p1Active = target; else battle.p2Active = target;
+        setTransform(`🔄 **${E.battleName(poke)}** was withdrawn — **${E.battleName(target)}** takes the field!`);
+        setChoice({ isSwitchOnly: true, name: "Switch" });
+        await lockIn(interaction, "✅ Switch locked in — waiting for your opponent…");
+        collector.stop("chosen");
+        return tryResolve();
+      }
+
+      // ── Mega / Gigantamax / Z-Power: transform now, then still pick a move ──
+      if (id === `${prefix}_mega` || id === `${prefix}_gmax` || id === `${prefix}_zmove`) {
+        let text;
+        if (id === `${prefix}_mega`) {
+          const kind = E.applyMega(poke);
+          text = `💎 **${E.battleName(poke)}** triggered ${kind}!`;
+        } else if (id === `${prefix}_gmax`) {
+          const form = E.applyGmax(poke);
+          text = `💍 **${E.battleName(poke)}** Gigantamaxed into **${form}**! G-Max moves active for 3 turns.`;
+        } else {
+          E.applyZPower(poke);
+          text = `⚡ **${E.battleName(poke)}** gathered **Z-Power**! Its next attack will hit with overwhelming force.`;
+        }
+        setTransform(text);
+        battle.lastActivity = Date.now();
+        await interaction.update({
+          embeds: [buildChooseEmbed(battle, side, `${text}\n\n**Now choose your move:**`)],
+          components: [buildMoveRow(poke, prefix)]
+        }).catch(() => {});
+        return;
+      }
+
+      // ── Move ──
+      if (id.startsWith(`${prefix}_move_`) || id === `${prefix}_struggle`) {
+        setChoice(resolveMoveFromCustomId(poke, id, prefix));
+        await lockIn(interaction, "✅ Move locked in — waiting for your opponent…");
+        collector.stop("chosen");
+        return tryResolve();
+      }
+    } catch (err) {
+      console.error("Battle choice handler failed:", err);
+      await interaction.deferUpdate().catch(() => {});
+    }
   });
 
-  switchCollector.on("collect", async (si) => {
-    const idx = parseInt(si.customId.replace("faintswitch_", ""));
-    const nextPoke = aliveDefenders[idx];
-    if (!nextPoke) return;
-
-    if (isP1Turn) battle.p2Active = nextPoke;
-    else battle.p1Active = nextPoke;
-
-    await si.update({
-      embeds: [new EmbedBuilder().setTitle("🔄 Go!").setDescription(`**${getBattleName(nextPoke)}** enters the battle!`).setColor(0x3498db)],
+  collector.on("end", async (_c, reason) => {
+    if (reason === "chosen" || getChoice()) return;
+    setChoice(timeoutChoice(poke));
+    await msg.edit({
+      embeds: [lockedEmbed("⏰ Out of time — a move was chosen automatically.", 0xe67e22)],
       components: []
+    }).catch(() => {});
+    tryResolve();
+  });
+}
+
+async function collectTurnAI(battle) {
+  const p1 = battle.p1Active;
+  const p2 = battle.p2Active;
+
+  const state = {
+    p1Choice: forcedChoice(p1),
+    p2Choice: null,
+    p1Transform: "",
+    p2Transform: "",
+    resolved: false
+  };
+
+  // ── AI decides: transform, switch out when outclassed, or attack ──
+  // The whole decision lives in src/utils/battleAI.js. It plays off a belief model
+  // instead of reading the player's row, counts turns-to-KO both ways, and times
+  // its one-shot Mega / Gmax deliberately. See HANDOVER.md §6.1.
+  //
+  // If any of that throws, the turn falls back to the original coin-flip AI below
+  // rather than killing the battle — there is no test suite standing behind this.
+  state.p2Choice = forcedChoice(p2);
+  if (!state.p2Choice) {
+    let plan = null;
+    try {
+      plan = AI.decide(battle, p2, p1);
+    } catch (err) {
+      console.error("Battle AI decision failed, using the fallback:", err);
+    }
+
+    if (plan && plan.action === "switch" && plan.switchTo) {
+      const target = plan.switchTo;
+      E.onSwitchOut(p2);
+      battle.p2Active = target;
+      state.p2Transform = `🔄 🤖 The AI withdrew **${E.battleName(p2)}** and sent out **${E.battleName(target)}**!`;
+      state.p2Choice = { isSwitchOnly: true, name: "Switch" };
+    } else if (plan) {
+      if (plan.transform === "gmax") {
+        const form = E.applyGmax(p2);
+        state.p2Transform = `💍 🤖 **${E.battleName(p2)}** Gigantamaxed into **${form}**!`;
+      } else if (plan.transform === "mega") {
+        const kind = E.applyMega(p2);
+        state.p2Transform = `💎 🤖 **${E.battleName(p2)}** triggered ${kind}!`;
+      } else if (plan.transform === "z") {
+        E.applyZPower(p2);
+        state.p2Transform = `⚡ 🤖 **${E.battleName(p2)}** gathered **Z-Power**!`;
+      }
+      // Picked after the transform on purpose: Gigantamax swaps the entire move
+      // list, and a Mega changes types and stats, so scoring must see the new body.
+      try {
+        state.p2Choice = AI.chooseMove(battle, battle.p2Active, p1);
+      } catch (err) {
+        console.error("Battle AI move choice failed, using the fallback:", err);
+        state.p2Choice = pickAIMove(battle, battle.p2Active, p1);
+      }
+    } else {
+      // Fallback: the original behaviour, unchanged.
+      const bench = battle.p2Team.filter(p => p.currentHp > 0 && p !== p2);
+      const hurt = p2.currentHp / p2.maxHp < 0.25;
+      if (bench.length && hurt && Math.random() < 0.4) {
+        const target = bench.reduce((best, p) => (p.currentHp / p.maxHp > best.currentHp / best.maxHp ? p : best), bench[0]);
+        E.onSwitchOut(p2);
+        battle.p2Active = target;
+        state.p2Transform = `🔄 🤖 The AI withdrew **${E.battleName(p2)}** and sent out **${E.battleName(target)}**!`;
+        state.p2Choice = { isSwitchOnly: true, name: "Switch" };
+      } else {
+        if (p2.canGmax && !p2.gmaxed && !p2.megaEvolved && Math.random() < 0.55) {
+          const form = E.applyGmax(p2);
+          state.p2Transform = `💍 🤖 **${E.battleName(p2)}** Gigantamaxed into **${form}**!`;
+        } else if (p2.canMega && !p2.megaEvolved && !p2.gmaxed && Math.random() < 0.55) {
+          const kind = E.applyMega(p2);
+          state.p2Transform = `💎 🤖 **${E.battleName(p2)}** triggered ${kind}!`;
+        }
+        state.p2Choice = pickAIMove(battle, battle.p2Active, p1);
+      }
+    }
+  }
+
+  const fieldEmbed = await buildFieldEmbed(battle, null);
+  fieldEmbed.embed
+    .setTitle(`⚔️ Turn ${battle.turnNumber} — choose your move!`)
+    .setDescription(`<@${battle.challenger}> — the AI has locked in its move.\n\n⏱️ ${CHOICE_TIMEOUT / 1000} seconds`);
+  const fieldOpts = { embeds: [fieldEmbed.embed], components: [] };
+  if (fieldEmbed.attachment) fieldOpts.files = [fieldEmbed.attachment];
+  await battle.channel.send(fieldOpts);
+
+  async function tryResolve() {
+    if (state.resolved) return;
+    if (!state.p1Choice || !state.p2Choice) return;
+    state.resolved = true;
+    await resolveTurn(battle, state);
+  }
+
+  if (state.p1Choice) {
+    await battle.channel.send({
+      embeds: [lockedEmbed(
+        `<@${battle.challenger}> — **${E.battleName(p1)}** is locked into **${state.p1Choice.name}** this turn.`,
+        0xe67e22
+      )]
+    });
+    return tryResolve();
+  }
+
+  const msg = await battle.channel.send({
+    content: `<@${battle.challenger}> — your action:`,
+    embeds: [buildChooseEmbed(battle, 1, "🤖 The AI has chosen. Pick your action!")],
+    components: buildActionRows(battle, p1, "p1mv")
+  });
+
+  attachChoiceCollector(battle, state, 1, msg, tryResolve);
+}
+
+// ── Resolution ────────────────────────────────────────────────────────
+
+async function resolveTurn(battle, state) {
+  try {
+    if (!activeBattles.has(battle.channelId)) return;
+    battle.lastActivity = Date.now();
+
+    // Read the *current* actives. Switching used to reassign battle.p1Active
+    // while resolution still used the pre-switch closure, so the opponent's
+    // move hit the Pokemon that had already left the field.
+    const p1 = battle.p1Active;
+    const p2 = battle.p2Active;
+    const { p1Choice, p2Choice, p1Transform, p2Transform } = state;
+
+    const p1First = E.firstActorIsA(p1, p1Choice, p2, p2Choice);
+    const lines = [];
+
+    for (const text of p1First ? [p1Transform, p2Transform] : [p2Transform, p1Transform]) {
+      if (text) lines.push(text);
+    }
+    if (lines.length) lines.push("");
+
+    const p1Speed = E.getSpeed(p1);
+    const p2Speed = E.getSpeed(p2);
+    const fast = p1First ? p1 : p2;
+    const slow = p1First ? p2 : p1;
+    const fastMove = p1First ? p1Choice : p2Choice;
+    const slowMove = p1First ? p2Choice : p1Choice;
+    const fastPrio = fastMove?.priority || 0;
+    const slowPrio = slowMove?.priority || 0;
+
+    if (fastPrio !== slowPrio) {
+      lines.push(`⚡ **${E.battleName(fast)}** moves first with a priority move!`);
+    } else {
+      lines.push(`⚡ **${E.battleName(fast)}** is faster (${p1First ? p1Speed : p2Speed} vs ${p1First ? p2Speed : p1Speed} Spd)`);
+    }
+    lines.push("");
+
+    const firstLog = [];
+    const firstResult = E.performMove(fast, slow, fastMove, firstLog);
+    if (firstLog.length) lines.push(firstLog.map((l, i) => (i === 0 ? `🔹 ${l}` : l)).join("\n"));
+    // The AI only learns about the player from what it just watched happen.
+    AI.observe(battle, fast, slow, fastMove, firstResult);
+
+    if (slow.currentHp > 0 && fast.currentHp > 0) {
+      const secondLog = [];
+      const secondResult = E.performMove(slow, fast, slowMove, secondLog);
+      if (secondLog.length) {
+        lines.push("");
+        lines.push(secondLog.map((l, i) => (i === 0 ? `🔸 ${l}` : l)).join("\n"));
+      }
+      AI.observe(battle, slow, fast, slowMove, secondResult);
+    } else if (slow.currentHp <= 0) {
+      lines.push("");
+      lines.push(`🔸 **${E.battleName(slow)}** couldn't move!`);
+    }
+
+    // ── End of turn: chip damage, then Gigantamax timers ──
+    const residualLog = [];
+    for (const poke of p1First ? [p1, p2] : [p2, p1]) {
+      E.endOfTurnResiduals(poke, residualLog);
+    }
+    if (residualLog.length) {
+      lines.push("");
+      lines.push(residualLog.join("\n"));
+    }
+
+    const gmaxLog = [];
+    for (const poke of [p1, p2]) {
+      const worn = E.tickGmax(poke);
+      if (worn) gmaxLog.push(worn);
+    }
+    if (gmaxLog.length) {
+      lines.push("");
+      lines.push(gmaxLog.join("\n"));
+    }
+
+    const actionLog = lines.filter(l => l !== undefined).join("\n").trim();
+
+    const p1Down = p1.currentHp <= 0;
+    const p2Down = p2.currentHp <= 0;
+
+    if (!p1Down && !p2Down) {
+      await sleep(battle.isAI ? 1200 : 700);
+      return beginTurn(battle, actionLog);
+    }
+
+    // ── Faints ──
+    const faintLines = [];
+    if (p1Down) faintLines.push(`💀 **${E.battleName(p1)}** fainted!`);
+    if (p2Down) faintLines.push(`💀 **${E.battleName(p2)}** fainted!`);
+    const faintLog = `${actionLog}\n\n${faintLines.join("\n")}`;
+
+    await sendField(battle, faintLog);
+    await sleep(1200);
+
+    const p1Alive = battle.p1Team.some(p => p.currentHp > 0);
+    const p2Alive = battle.p2Team.some(p => p.currentHp > 0);
+
+    if (!p1Alive && !p2Alive) {
+      // A mutual wipe used to be paid out as a win for the challenger.
+      return finishBattle(battle, null, "💀 Both trainers are out of usable Pokémon — it's a draw!");
+    }
+    if (!p1Alive) return finishBattle(battle, 2, `🏆 ${sideLabel(battle, 2)} defeated every one of ${sideLabel(battle, 1)}'s Pokémon!`);
+    if (!p2Alive) return finishBattle(battle, 1, `🏆 ${sideLabel(battle, 1)} defeated every one of ${sideLabel(battle, 2)}'s Pokémon!`);
+
+    // Both sides still have Pokemon — replace each fainted slot. The old code
+    // only ever handled one side, so a double KO left the loser's dead Pokemon
+    // on the field.
+    const entryLines = [];
+    if (p1Down) {
+      E.onSwitchOut(p1);
+      const line = await promptReplacement(battle, 1);
+      if (!activeBattles.has(battle.channelId)) return;
+      if (line) entryLines.push(line);
+    }
+    if (p2Down) {
+      E.onSwitchOut(p2);
+      const line = await promptReplacement(battle, 2);
+      if (!activeBattles.has(battle.channelId)) return;
+      if (line) entryLines.push(line);
+    }
+
+    await sleep(600);
+    return beginTurn(battle, entryLines.join("\n") || null);
+  } catch (err) {
+    return abortBattle(battle, err);
+  }
+}
+
+/** Asks a trainer for their next Pokemon (AI picks the healthiest itself). */
+function promptReplacement(battle, side) {
+  const team = side === 1 ? battle.p1Team : battle.p2Team;
+  const ownerId = side === 1 ? battle.challenger : battle.opponent;
+  const bench = team.filter(p => p.currentHp > 0);
+
+  const setActive = (poke) => {
+    if (side === 1) battle.p1Active = poke; else battle.p2Active = poke;
+  };
+
+  if (!bench.length) return Promise.resolve(null);
+
+  if (battle.isAI && ownerId === "AI_TRAINER") {
+    const next = bench.reduce((best, p) => (p.currentHp / p.maxHp > best.currentHp / best.maxHp ? p : best), bench[0]);
+    setActive(next);
+    return Promise.resolve(`🤖 The AI sent out **${E.battleName(next)}**!`);
+  }
+
+  if (bench.length === 1) {
+    setActive(bench[0]);
+    return Promise.resolve(`🔄 <@${ownerId}> sent out **${E.battleName(bench[0])}**!`);
+  }
+
+  return new Promise(async (resolve) => {
+    const row = new ActionRowBuilder();
+    bench.forEach((p, i) => row.addComponents(new ButtonBuilder()
+      .setCustomId(`faintsw_${side}_${i}`)
+      .setLabel(`${E.battleName(p)} · Lv.${p.level} · ${p.currentHp}/${p.maxHp} HP`.slice(0, 80))
+      .setStyle(ButtonStyle.Primary)));
+
+    const msg = await battle.channel.send({
+      content: `<@${ownerId}>`,
+      embeds: [new EmbedBuilder()
+        .setTitle("💀 Your Pokémon fainted!")
+        .setDescription(`<@${ownerId}>, choose who to send in next.\n\n⏱️ ${SWITCH_TIMEOUT / 1000} seconds`)
+        .setColor(0xe74c3c)],
+      components: [row]
+    }).catch(() => null);
+
+    if (!msg) {
+      setActive(bench[0]);
+      return resolve(`🔄 **${E.battleName(bench[0])}** entered the battle!`);
+    }
+
+    let settled = false;
+    const collector = msg.createMessageComponentCollector({
+      filter: i => i.user.id === ownerId && i.customId.startsWith(`faintsw_${side}_`),
+      time: SWITCH_TIMEOUT,
+      max: 1
     });
 
-    await new Promise(r => setTimeout(r, 1000));
-    startBattleTurn(message, battle, channelId, `**${getBattleName(nextPoke)}** enters the battle!`);
-  });
+    collector.on("collect", async (interaction) => {
+      const next = bench[parseInt(interaction.customId.replace(`faintsw_${side}_`, ""), 10)];
+      if (!next) return interaction.deferUpdate().catch(() => {});
+      settled = true;
+      battle.lastActivity = Date.now();
+      setActive(next);
+      await interaction.update({
+        embeds: [new EmbedBuilder()
+          .setTitle("🔄 Go!")
+          .setDescription(`**${E.battleName(next)}** entered the battle!`)
+          .setColor(0x3498db)],
+        components: []
+      }).catch(() => {});
+      resolve(`🔄 <@${ownerId}> sent out **${E.battleName(next)}**!`);
+    });
 
-  switchCollector.on("end", (c) => {
-    if (c.size === 0) {
-      const nextPoke = aliveDefenders[0];
-      if (isP1Turn) battle.p2Active = nextPoke;
-      else battle.p1Active = nextPoke;
-      startBattleTurn(message, battle, channelId, `**${getBattleName(nextPoke)}** was auto-sent out!`);
-    }
+    collector.on("end", () => {
+      if (settled) return;
+      const next = bench.reduce((best, p) => (p.currentHp / p.maxHp > best.currentHp / best.maxHp ? p : best), bench[0]);
+      setActive(next);
+      msg.edit({
+        embeds: [new EmbedBuilder()
+          .setTitle("⏰ Time's Up")
+          .setDescription(`**${E.battleName(next)}** was sent out automatically.`)
+          .setColor(0xe67e22)],
+        components: []
+      }).catch(() => {});
+      resolve(`🔄 **${E.battleName(next)}** was sent out automatically!`);
+    });
   });
 }
 
-async function endBattle(interaction, battle, channelId, attacker, defender, isP1Turn, message, actionLog) {
-  const winner = isP1Turn ? battle.challenger : battle.opponent;
-  const loser = isP1Turn ? battle.opponent : battle.challenger;
-  const winnerPoke = attacker;
-  const loserPoke = defender;
-  const winnerName = getBattleName(winnerPoke);
+// ── Rewards ───────────────────────────────────────────────────────────
 
-  const isAIWin = winner === "AI_TRAINER";
-  const isAILoss = loser === "AI_TRAINER";
+const REWARDS = {
+  win:      { coinsMin: 150, coinsMax: 450, xpMin: 30, xpMax: 80 },
+  aiBonus:  { min: 50, max: 150 },
+  forfeit:  { coins: 200, xp: 30 },
+  draw:     { coins: 100, xp: 20 }
+};
 
-  const reward = Math.floor(Math.random() * 300) + 150;
-  const xpGain = Math.floor(Math.random() * 50) + 30;
+const randBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-  if (!isAIWin) {
-    await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [reward, winner]);
-    const winnerTeam = isP1Turn ? battle.p1Team : battle.p2Team;
-    const { levelUpPokemon } = require("../utils/levelUpHelper");
-    const { xpForLevel } = require("../utils/helpers");
-    for (const p of winnerTeam) {
-      if (p.id > 0) {
-        const updateResult = await pool.query(
-          "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
-          [xpGain, p.id]
-        );
-        if (updateResult.rows.length > 0) {
-          const updatedPoke = updateResult.rows[0];
-          const xpNeeded = xpForLevel(updatedPoke.level);
-          if (updatedPoke.xp >= xpNeeded && updatedPoke.level < 100) {
-            await levelUpPokemon(winner, p.id, 1, message.channel);
-          }
-        }
-      }
+/** Adds XP to every Pokemon on a side, levelling up (and evolving) as needed. */
+async function awardTeamXp(battle, side, xp) {
+  const ownerId = side === 1 ? battle.challenger : battle.opponent;
+  if (ownerId === "AI_TRAINER" || xp <= 0) return;
+  const team = side === 1 ? battle.p1Team : battle.p2Team;
+  const { addXp } = require("../utils/levelUpHelper");
+
+  for (const poke of team) {
+    if (poke.id <= 0) continue; // AI Pokemon use negative synthetic ids
+    try {
+      await addXp(ownerId, poke.id, xp, battle.channel);
+    } catch (err) {
+      console.error(`Failed to award XP to pokemon ${poke.id}:`, err);
     }
-  }
-  if (!isAILoss && !isAIWin) {
-    const xpLoser = Math.floor(xpGain / 3);
-    const loserTeam = isP1Turn ? battle.p2Team : battle.p1Team;
-    const { levelUpPokemon } = require("../utils/levelUpHelper");
-    const { xpForLevel } = require("../utils/helpers");
-    for (const p of loserTeam) {
-      if (p.id > 0) {
-        const updateResult = await pool.query(
-          "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 RETURNING *",
-          [xpLoser, p.id]
-        );
-        if (updateResult.rows.length > 0) {
-          const updatedPoke = updateResult.rows[0];
-          const xpNeeded = xpForLevel(updatedPoke.level);
-          if (updatedPoke.xp >= xpNeeded && updatedPoke.level < 100) {
-            await levelUpPokemon(loser, p.id, 1, message.channel);
-          }
-        }
-      }
-    }
-  }
-  if (battle.isAI && !isAIWin) {
-    const aiBonus = Math.floor(Math.random() * 100) + 50;
-    await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [aiBonus, winner]);
-  }
-
-  const endEmbed = new EmbedBuilder()
-    .setTitle("⚔️ Battle Over!")
-    .setDescription(
-      `${actionLog}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `🏆 **${winnerName}** wins the battle!\n` +
-      (isAIWin
-        ? `The AI Trainer was victorious! Better luck next time!`
-        : `<@${winner}> earned **${reward}** Cybercoins and **${xpGain}** XP per Pokemon!` +
-          (battle.isAI ? `\n🤖 AI Battle Bonus: **+${Math.floor(Math.random() * 100) + 50}** Cybercoins!` : ""))
-    )
-    .setColor(0x2ecc71)
-    .setThumbnail(getPokeImage(winnerPoke));
-
-  activeBattles.delete(channelId);
-  if (interaction) {
-    return interaction.update({ embeds: [endEmbed], components: [] });
-  } else {
-    return message.channel.send({ embeds: [endEmbed] });
   }
 }
 
-module.exports = { name: "battle", aliases: ["duel", "fight"], description: "Battle another trainer or AI", execute };
+async function finishBattle(battle, winnerSide, headline, opts = {}) {
+  const channelId = battle.channelId;
+  cleanupBattle(channelId);
+
+  const isDraw = winnerSide === null;
+  const winnerId = winnerSide === 1 ? battle.challenger : winnerSide === 2 ? battle.opponent : null;
+  const loserSide = winnerSide === 1 ? 2 : winnerSide === 2 ? 1 : null;
+  const loserId = loserSide === 1 ? battle.challenger : loserSide === 2 ? battle.opponent : null;
+  const aiWon = winnerId === "AI_TRAINER";
+
+  const detail = [];
+
+  try {
+    if (isDraw) {
+      const { coins, xp } = REWARDS.draw;
+      for (const side of [1, 2]) {
+        const owner = side === 1 ? battle.challenger : battle.opponent;
+        if (owner === "AI_TRAINER") continue;
+        await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [coins, owner]);
+        await awardTeamXp(battle, side, xp);
+      }
+      detail.push(`🤝 Both trainers earned **${coins}** Cybercoins and **${xp}** XP per Pokémon.`);
+    } else if (aiWon) {
+      detail.push("🤖 The AI Trainer was victorious! No rewards this time — try again!");
+      if (loserSide) await awardTeamXp(battle, loserSide, REWARDS.forfeit.xp);
+    } else {
+      const coins = opts.forfeit ? REWARDS.forfeit.coins : randBetween(REWARDS.win.coinsMin, REWARDS.win.coinsMax);
+      const xp = opts.forfeit ? REWARDS.forfeit.xp : randBetween(REWARDS.win.xpMin, REWARDS.win.xpMax);
+      // The AI bonus used to be paid with one random roll and displayed with a
+      // second one, so the number shown never matched the coins received.
+      const aiBonus = battle.isAI ? randBetween(REWARDS.aiBonus.min, REWARDS.aiBonus.max) : 0;
+
+      await pool.query("UPDATE users SET balance = balance + $1 WHERE user_id = $2", [coins + aiBonus, winnerId]);
+      await awardTeamXp(battle, winnerSide, xp);
+      if (loserId && loserId !== "AI_TRAINER") await awardTeamXp(battle, loserSide, Math.max(1, Math.floor(xp / 3)));
+
+      detail.push(`<@${winnerId}> earned **${coins}** Cybercoins and **${xp}** XP per Pokémon.`);
+      if (aiBonus) detail.push(`🤖 AI Battle Bonus: **+${aiBonus}** Cybercoins!`);
+      if (loserId && loserId !== "AI_TRAINER") {
+        detail.push(`<@${loserId}>'s team gained **${Math.max(1, Math.floor(xp / 3))}** XP each for the effort.`);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to pay out battle rewards:", err);
+    detail.push("⚠️ Rewards couldn't be saved — please contact an admin.");
+  }
+
+  const winnerPoke = winnerSide === 1 ? battle.p1Active : winnerSide === 2 ? battle.p2Active : null;
+
+  const embed = new EmbedBuilder()
+    .setTitle(isDraw ? "🤝 Battle Drawn!" : "🏆 Battle Over!")
+    .setDescription(`${headline}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n${detail.join("\n")}`)
+    .setColor(isDraw ? 0x95a5a6 : 0x2ecc71)
+    .setFooter({ text: `${battle.turnNumber || 0} turns fought` });
+
+  if (winnerPoke) embed.setThumbnail(getPokeImage(winnerPoke));
+
+  return battle.channel.send({ embeds: [embed] }).catch(() => {});
+}
+
+module.exports = {
+  name: "battle",
+  aliases: ["duel", "fight"],
+  description: "Battle another trainer or an AI trainer (3v3)",
+  execute
+};

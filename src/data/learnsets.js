@@ -7,17 +7,17 @@ const POKEMON_SPECIFIC_MOVES = {
   // ── Holi Spirit Greninja (Event) ─────────────────────────────
   // Fixed moveset — always these 4 regardless of level
   10658: [
-    { name: "Coloursplash",     power: 100, accuracy: 100, type: "fairy",  learnLevel: 1 },
-    { name: "Powder Bomb",      power: 90,  accuracy: 100, type: "water",  learnLevel: 1 },
-    { name: "Vibrant Wave",     power: 80,  accuracy: 90,  type: "fairy",  learnLevel: 1 },
-    { name: "Prismatic Shield", power: 10,  accuracy: 100, type: "water",  learnLevel: 1, isProtect: true }
+    { name: "Coloursplash",     power: 100, accuracy: 100, type: "fairy",  category: "special",  pp: 10, learnLevel: 1 },
+    { name: "Powder Bomb",      power: 90,  accuracy: 100, type: "water",  category: "physical", pp: 10, learnLevel: 1, effect: { status: "poison", chance: 30 } },
+    { name: "Vibrant Wave",     power: 80,  accuracy: 90,  type: "fairy",  category: "special",  pp: 15, learnLevel: 1, effect: { status: "confuse", chance: 20 } },
+    { name: "Prismatic Shield", power: 0,   accuracy: 100, type: "water",  category: "status",   pp: 10, learnLevel: 1, isProtect: true, effect: { isProtect: true } }
   ],
 
   // ── Eternatus ─────────────────────────────────────────────────
   // Eternabeam is its signature — only available to Eternatus
   // Learns at level 84 (official learn level)
   890: [
-    { name: "Eternabeam", power: 160, accuracy: 90, type: "dragon", learnLevel: 84, recharge: true }
+    { name: "Eternabeam", power: 160, accuracy: 90, type: "dragon", category: "special", pp: 5, learnLevel: 84, effect: { recharge: true } }
   ],
 
   // ══════════════════════════════════════════════════════════════
@@ -26,46 +26,46 @@ const POKEMON_SPECIFIC_MOVES = {
   // ══════════════════════════════════════════════════════════════
 
   384: [ // Rayquaza — learns at 90 (signature move)
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 90 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 90 }
   ],
   149: [ // Dragonite — dragon/flying, earns it at 85
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 85 }
   ],
   373: [ // Salamence — dragon/flying, 85
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 85 }
   ],
   635: [ // Hydreigon — dark/dragon, 88
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 88 }
   ],
   445: [ // Garchomp — dragon/ground, 88
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 88 }
   ],
   612: [ // Haxorus — pure dragon, 85
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 85 }
   ],
   330: [ // Flygon — ground/dragon, 82
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 82 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 82 }
   ],
   643: [ // Reshiram — dragon/fire legendary, 90
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 90 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 90 }
   ],
   644: [ // Zekrom — dragon/electric legendary, 90
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 90 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 90 }
   ],
   483: [ // Dialga — steel/dragon legendary, 88
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 88 }
   ],
   484: [ // Palkia — water/dragon legendary, 88
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 88 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 88 }
   ],
   706: [ // Goodra — pure dragon, 82
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 82 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 82 }
   ],
   784: [ // Kommo-o — dragon/fighting, 85
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 85 }
   ],
   884: [ // Duraludon — steel/dragon, 85
-    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", learnLevel: 85 }
+    { name: "Dragon Ascent", power: 120, accuracy: 100, type: "flying", category: "physical", pp: 5, effect: { boost: { def: -1, spdef: -1 }, target: "self", chance: 100 }, learnLevel: 85 }
   ],
 
   // ══════════════════════════════════════════════════════════════
@@ -74,47 +74,56 @@ const POKEMON_SPECIFIC_MOVES = {
   // ══════════════════════════════════════════════════════════════
 
   448: [ // Lucario — fighting/steel, 72
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 72 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 72 }
   ],
   376: [ // Metagross — steel/psychic, 78 (signature Pokémon of this move)
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 78 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 78 }
   ],
   375: [ // Metang — evolves into Metagross, 65
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 65 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 65 }
   ],
   374: [ // Beldum — baby form, 55
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 55 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 55 }
   ],
   212: [ // Scizor — bug/steel, 70
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 70 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 70 }
   ],
   530: [ // Excadrill — ground/steel, 70
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 70 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 70 }
   ],
   681: [ // Aegislash-shield — steel/ghost, 75
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 75 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 75 }
   ],
   625: [ // Bisharp — dark/steel, 72
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 72 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 72 }
   ],
   983: [ // Kingambit — dark/steel (Bisharp evolution), 78
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 78 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 78 }
   ],
   638: [ // Cobalion — steel/fighting legendary, 75
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 75 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 75 }
   ],
   379: [ // Registeel — pure steel legendary, 80
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 80 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 80 }
   ],
   791: [ // Solgaleo — psychic/steel legendary, 82
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 82 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 82 }
   ],
   809: [ // Melmetal — steel, 80
-    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", learnLevel: 80 }
+    { name: "Meteor Mash", power: 90, accuracy: 90, type: "steel", category: "physical", pp: 10, effect: { boost: { atk: 1 }, target: "self", chance: 20 }, learnLevel: 80 }
   ]
 };
 
+// Learnsets are derived purely from a Pokemon's type list, so the same list
+// is requested over and over (dex pages, battle setup, level-ups). Memoize by
+// type signature — this turns a hot O(n) rebuild into a map lookup.
+const learnsetCache = new Map();
+
 function generateLearnset(types) {
+  const key = (types || []).join("/");
+  const cached = learnsetCache.get(key);
+  if (cached) return cached.map(m => ({ ...m }));
+
   const learnset = [];
   const addedMoves = new Set();
 
@@ -122,8 +131,8 @@ function generateLearnset(types) {
   for (let i = 0; i < normalMoves.length; i++) {
     const move = normalMoves[i];
     if (addedMoves.has(move.name)) continue;
-    const learnLevel = getLearnLevel(move.power, i, normalMoves.length);
-    learnset.push({ ...move, type: "normal", learnLevel });
+    const learnLevel = getLearnLevel(move, i, normalMoves.length);
+    learnset.push({ ...move, learnLevel });
     addedMoves.add(move.name);
   }
 
@@ -133,8 +142,8 @@ function generateLearnset(types) {
     for (let i = 0; i < typeMoves.length; i++) {
       const move = typeMoves[i];
       if (addedMoves.has(move.name)) continue;
-      const learnLevel = getLearnLevel(move.power, i, typeMoves.length);
-      learnset.push({ ...move, type, learnLevel });
+      const learnLevel = getLearnLevel(move, i, typeMoves.length);
+      learnset.push({ ...move, learnLevel });
       addedMoves.add(move.name);
     }
   }
@@ -148,16 +157,22 @@ function generateLearnset(types) {
       const move = midToHigh[i];
       if (addedMoves.has(move.name)) continue;
       const learnLevel = Math.min(100, 50 + i * 15 + Math.floor(move.power / 10));
-      learnset.push({ ...move, type: cType, learnLevel });
+      learnset.push({ ...move, learnLevel });
       addedMoves.add(move.name);
     }
   }
 
-  learnset.sort((a, b) => a.learnLevel - b.learnLevel);
-  return learnset;
+  learnset.sort((a, b) => a.learnLevel - b.learnLevel || a.name.localeCompare(b.name));
+  learnsetCache.set(key, learnset);
+  return learnset.map(m => ({ ...m }));
 }
 
-function getLearnLevel(power, index, totalInType) {
+// Learn level is derived from raw power so stronger moves come later.
+// Status moves have no power, so they're spread across the early-mid game
+// instead of all landing at level 1.
+function getLearnLevel(move, index, totalInType) {
+  const power = move.power || 0;
+  if (move.category === "status") return Math.max(8, 12 + index * 6);
   if (power <= 40) return Math.max(1, 1 + index * 3);
   if (power <= 60) return Math.max(5, 10 + index * 5);
   if (power <= 80) return Math.max(15, 25 + index * 5);

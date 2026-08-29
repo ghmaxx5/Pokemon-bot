@@ -17,12 +17,16 @@ function getRegion(pokemonId) {
   return { name: "Paldea", gen: 9 };
 }
 
+const { getRarityInfo } = require("../data/rarity");
+const { NATURE_MODIFIERS } = require("../data/natures");
+
 async function buildEmbed(p, data, position, total, prefix) {
   const iv = totalIV({ hp: p.iv_hp, atk: p.iv_atk, def: p.iv_def, spatk: p.iv_spatk, spdef: p.iv_spdef, spd: p.iv_spd });
   const xpNeeded = xpForLevel(p.level);
   const shinyText = p.shiny ? "✨ " : "";
   const favText = p.favorite ? " ❤️" : "";
   const pokeName = p.nickname || capitalize(data.displayName || data.name);
+  const rarity = getRarityInfo(data);
 
   const typeStr = data.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" | ");
   const region = data.region ? { name: data.region, gen: "?" } : getRegion(p.pokemon_id);
@@ -33,7 +37,15 @@ async function buildEmbed(p, data, position, total, prefix) {
   let heldItemStr = "None";
   if (p.held_item === "mega_stone") heldItemStr = "💎 Mega Stone";
   else if (p.held_item === "gmax_ring") heldItemStr = "💍 Gigantamax Ring";
+  else if (p.held_item === "z_ring") heldItemStr = "⚡ Z-Ring";
   else if (p.held_item === "hand_held_color_pouch") heldItemStr = "🎨 Hand-held Color Pouch *(bound)*";
+
+  const mod = NATURE_MODIFIERS[p.nature];
+  let natureStr = p.nature || "Hardy";
+  if (mod && mod.up && mod.down) {
+    const upMap = { atk: "Atk", def: "Def", spatk: "SpA", spdef: "SpD", spd: "Spd" };
+    natureStr += ` (▲${upMap[mod.up] || mod.up} ▼${upMap[mod.down] || mod.down})`;
+  }
 
   const megaData = getMegaData(p.pokemon_id);
   const gmaxData = getGmaxData(p.pokemon_id);
@@ -68,11 +80,11 @@ async function buildEmbed(p, data, position, total, prefix) {
     .addFields(
       { name: "📊 Level",       value: `**${p.level}** / 100`,       inline: true },
       { name: "⭐ Total IV",    value: `**${iv}%**`,                  inline: true },
-      { name: "🎭 Nature",      value: p.nature,                      inline: true },
+      { name: "🎭 Nature",      value: natureStr,                     inline: true },
       { name: "📈 Experience",  value: `\`[${xpBar}]\` ${p.xp}/${xpNeeded}`, inline: false },
       { name: "🆔 ID",          value: `${p.id}`,                     inline: true },
       { name: "🎒 Held Item",   value: heldItemStr,                   inline: true },
-      { name: "✨ Shiny",       value: p.shiny ? "Yes ✨" : "No",     inline: true },
+      { name: "💎 Rarity",      value: `${rarity.emoji} ${rarity.label}`, inline: true },
       { name: "⚔️ Equipped Moves", value: moveStr,                    inline: false },
       { name: "\u200B",         value: "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n**Individual Values (IVs)**", inline: false },
       { name: "HP",     value: `\`${getStatBar(p.iv_hp)}\` **${p.iv_hp}**/31`,     inline: true },

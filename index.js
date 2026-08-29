@@ -50,6 +50,7 @@ const {
   GatewayIntentBits,
   Collection,
   EmbedBuilder,
+  AttachmentBuilder,
 } = discordJS;
 const fs = require("fs");
 const path = require("path");
@@ -64,6 +65,8 @@ const {
 } = require("./src/data/pokemonLoader");
 const { xpForLevel, capitalize, getTypeEmoji } = require("./src/utils/helpers");
 const { getNewMovesAtLevel } = require("./src/data/learnsets");
+const { generateSpawnImage } = require("./src/utils/spawnImage");
+const { seedFrom } = require("./src/utils/scene");
 
 // Increase undici connect timeout to handle network lag in virtualized containers
 const undici = require("undici");
@@ -111,6 +114,31 @@ const spawnCooldowns = new Map();
 const xpCooldowns = new Map();
 const XP_COOLDOWN = 10000;
 
+// Periodic cleanup to keep in-memory maps bounded
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, time] of xpCooldowns.entries()) {
+    if (now - time > 600000) xpCooldowns.delete(id);
+  }
+  for (const [id, time] of spawnCooldowns.entries()) {
+    if (now - time > 3600000) spawnCooldowns.delete(id);
+  }
+  if (messageCounts.size > 10000) {
+    let deleted = 0;
+    for (const key of messageCounts.keys()) {
+      messageCounts.delete(key);
+      if (++deleted >= 5000) break;
+    }
+  }
+}, 15 * 60 * 1000).unref();
+
+// When two commands claim the same alias, `readdirSync` order used to decide the
+// winner silently. Pin the intended owner here instead so the resolution is
+// deterministic and visible, and warn about any collision that isn't pinned.
+const ALIAS_OVERRIDES = {
+  h: "hint" // both help.js and hint.js declare "h"; hint has always won in practice
+};
+
 const commandFiles = fs
   .readdirSync(path.join(__dirname, "src/commands"))
   .filter((f) => f.endsWith(".js"));
@@ -119,10 +147,23 @@ for (const file of commandFiles) {
   commands.set(cmd.name, cmd);
   if (cmd.aliases) {
     for (const alias of cmd.aliases) {
+      const pinned = ALIAS_OVERRIDES[alias];
+      if (pinned && pinned !== cmd.name) continue;
+
+      const existing = aliases.get(alias);
+      if (existing && existing !== cmd.name && !pinned) {
+        console.warn(
+          `Alias collision: "${alias}" is claimed by both ${existing} and ${cmd.name} — keeping ${existing}. Pin a winner in ALIAS_OVERRIDES.`
+        );
+        continue;
+      }
       aliases.set(alias, cmd.name);
     }
   }
 }
+
+// A command's own name outranks every alias, so no command can ever be shadowed.
+for (const name of commands.keys()) aliases.delete(name);
 
 console.log(`Loaded ${commands.size} commands`);
 
@@ -280,21 +321,12 @@ async function handleXP(message) {
       xpGain *= 2;
     }
 
-    const result = await pool.query(
-      "UPDATE pokemon SET xp = xp + $1 WHERE id = $2 AND user_id = $3 RETURNING *",
-      [xpGain, user.rows[0].selected_pokemon_id, message.author.id],
-    );
-
-    if (result.rows.length === 0) return;
-    const p = result.rows[0];
-    const xpNeeded = xpForLevel(p.level);
-
-    if (p.xp >= xpNeeded && p.level < 100) {
-      const { levelUpPokemon } = require("./src/utils/levelUpHelper");
-      await levelUpPokemon(message.author.id, p.id, 1, message.channel);
-    }
+    // addXp handles the whole flow atomically: overflow XP carries over, and a
+    // single award can grant several levels instead of just one.
+    const { addXp } = require("./src/utils/levelUpHelper");
+    await addXp(message.author.id, user.rows[0].selected_pokemon_id, xpGain, message.channel);
   } catch (err) {
-    // silently fail XP handling
+    console.error("XP handling failed:", err);
   }
 }
 
@@ -327,27 +359,6 @@ async function handleSpawning(message) {
     if (targetChannels.length === 0) targetChannels = [message.channel];
   }
 
-  // 2% chance for event Pokemon
-  let pokemon = null;
-  if (Math.random() < 0.02) pokemon = getRandomEventPokemon();
-  if (!pokemon) pokemon = getRandomPokemon();
-  if (!pokemon) return;
-
-  const isEvent = pokemon.isEventPokemon;
-  const image = getPokemonImage(pokemon.id);
-  const displayName = pokemon.displayName || capitalize(pokemon.name);
-
-  const embed = new EmbedBuilder()
-    .setTitle(isEvent ? "🎊 A special Event Pokémon has appeared!" : "A wild Pokémon has appeared!")
-    .setDescription(
-      isEvent
-        ? `A rare **${displayName}** appeared during the **${pokemon.eventName || "Special Event"}**!\nType \`${prefix}catch greninja\` to catch it!`
-        : `Guess the Pokémon and type \`${prefix}catch <n>\` to catch it!`
-    )
-    .setImage(image)
-    .setColor(isEvent ? 0xf72585 : 0xff6600)
-    .setFooter({ text: isEvent ? "🎨 Event spawn — extra rare!" : `Use ${prefix}hint for a hint!` });
-
   for (const ch of targetChannels) {
     // Each channel gets its OWN random pokemon
     let chPokemon = null;
@@ -366,12 +377,24 @@ async function handleSpawning(message) {
           ? `A rare **${chDisplayName}** appeared during the **${chPokemon.eventName || "Special Event"}**!\nType \`${prefix}catch ${chPokemon.name.replace(/-/g, " ")}\` to catch it!`
           : `Guess the Pokemon and type \`${prefix}catch <n>\` to catch it!`
       )
-      .setImage(chImage)
       .setColor(chIsEvent ? 0xf72585 : 0xff6600)
       .setFooter({ text: chIsEvent ? "🎨 Event spawn — extra rare!" : `Use ${prefix}hint for a hint!` });
 
+    // A spawn card puts the Pokemon in a scene chosen from its types, with its
+    // rarity tier on it. If the canvas render fails for any reason the spawn
+    // still goes out with the plain sprite, so nobody loses a catch over art.
+    const files = [];
+    try {
+      const buffer = await generateSpawnImage(chPokemon, { seed: seedFrom(ch.id, chPokemon.id) });
+      files.push(new AttachmentBuilder(buffer, { name: "spawn.png" }));
+      chEmbed.setImage("attachment://spawn.png");
+    } catch (err) {
+      console.error("Spawn image generation failed:", err);
+      chEmbed.setImage(chImage);
+    }
+
     spawns.set(ch.id, { pokemonId: chPokemon.id, spawnedAt: Date.now() });
-    ch.send({ embeds: [chEmbed] }).catch(() => {});
+    ch.send({ embeds: [chEmbed], files }).catch(() => {});
     setTimeout(() => {
       if (spawns.has(ch.id) && spawns.get(ch.id).pokemonId === chPokemon.id) {
         spawns.delete(ch.id);

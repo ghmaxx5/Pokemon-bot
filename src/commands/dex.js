@@ -4,6 +4,8 @@ const { getPokemonById, getPokemonByName, getPokemonImage, getAllPokemon, search
 const { canMegaEvolve, canGmax, getMegaData, getGmaxData } = require("../data/mega");
 const { capitalize, getTypeEmoji } = require("../utils/helpers");
 
+const { getRarityInfo } = require("../data/rarity");
+
 function getRegion(id) {
   if (id <= 151) return "Kanto";
   if (id <= 251) return "Johto";
@@ -16,7 +18,9 @@ function getRegion(id) {
   return "Paldea";
 }
 
+let cachedEvoFrom = null;
 function buildEvoFromMap() {
+  if (cachedEvoFrom) return cachedEvoFrom;
   const allPokemon = getAllPokemon();
   const evoFrom = {};
   for (const [id, p] of allPokemon) {
@@ -29,7 +33,8 @@ function buildEvoFromMap() {
       }
     }
   }
-  return evoFrom;
+  cachedEvoFrom = evoFrom;
+  return cachedEvoFrom;
 }
 
 function getFullEvoChain(pokemonId) {
@@ -67,6 +72,7 @@ function buildMainEmbed(data, userId, caught) {
   const typeStr = data.types.map(t => `${getTypeEmoji(t)} ${capitalize(t)}`).join(" / ");
   const region = data.region || getRegion(data.id);
   const displayName = data.displayName || capitalize(data.name);
+  const rarity = getRarityInfo(data);
 
   // Catchable status
   let catchableStr;
@@ -86,16 +92,15 @@ function buildMainEmbed(data, userId, caught) {
       { name: "Height", value: `${(data.height / 10).toFixed(1)}m`, inline: true },
       { name: "Weight", value: `${(data.weight / 10).toFixed(1)}kg`, inline: true },
       { name: "Caught", value: caught ? "Yes ✅" : "No ❌", inline: true },
-      { name: "Catchable", value: catchableStr, inline: true }
+      { name: "Catchable", value: catchableStr, inline: true },
+      { name: "Rarity", value: `${rarity.emoji} ${rarity.label}`, inline: true }
     )
     .setImage(getPokemonImage(data.id))
-    .setColor(data.isEventPokemon ? 0xf72585 : 0xe74c3c);
+    .setColor(data.isEventPokemon ? 0xf72585 : rarity.color || 0xe74c3c);
 
   if (data.isEventPokemon) {
     embed.addFields({ name: "🎊 Event", value: data.eventName || "Special Event", inline: true });
   }
-  if (data.isLegendary) embed.addFields({ name: "Rarity", value: "🌟 Legendary", inline: true });
-  if (data.isMythical) embed.addFields({ name: "Rarity", value: "💫 Mythical", inline: true });
   if (data.description) embed.addFields({ name: "Description", value: data.description.substring(0, 1024), inline: false });
 
   return embed;

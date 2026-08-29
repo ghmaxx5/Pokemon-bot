@@ -47,8 +47,11 @@ async function execute(message, args, spawns, prefix) {
     if (spData) {
       const spName = sp.nickname || capitalize(spData.name);
       const spIV = totalIV({ hp: sp.iv_hp, atk: sp.iv_atk, def: sp.iv_def, spatk: sp.iv_spatk, spdef: sp.iv_spdef, spd: sp.iv_spd });
-      const typeStr = spData.types.map(t => getTypeEmoji(t)).join(" ");
-      const heldStr = sp.held_item ? ` | 🎒 ${sp.held_item === 'mega_stone' ? '💎 Mega Stone' : '💍 G-Max Ring'}` : "";
+      let heldStr = "";
+      if (sp.held_item === "mega_stone") heldStr = " | 🎒 💎 Mega Stone";
+      else if (sp.held_item === "gmax_ring") heldStr = " | 🎒 💍 G-Max Ring";
+      else if (sp.held_item === "z_ring") heldStr = " | 🎒 ⚡ Z-Ring";
+      else if (sp.held_item === "hand_held_color_pouch") heldStr = " | 🎒 🎨 Color Pouch";
       selectedInfo = `${sp.shiny ? "✨ " : ""}**${spName}** ${typeStr}\nLv. ${sp.level} | IV: ${spIV}% | ${sp.nature}${heldStr}`;
       thumbnail = getPokemonImage(sp.pokemon_id, sp.shiny);
     }

@@ -35,7 +35,13 @@ async function execute(message, args, spawns, prefix) {
     return handleEquipMove(message, args, p, data, pokeName, userId, prefix);
   }
 
-  const availableMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
+  const rawMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
+  const seenMoves = new Set();
+  const availableMoves = rawMoves.filter(m => {
+    if (seenMoves.has(m.name)) return false;
+    seenMoves.add(m.name);
+    return true;
+  });
   const equippedMoves = [p.move1, p.move2, p.move3, p.move4].filter(Boolean);
 
   let moveList = "";
@@ -94,6 +100,10 @@ async function execute(message, args, spawns, prefix) {
         // Defer immediately to prevent "interaction failed" on slow DB calls
         await interaction.deferReply({ ephemeral: true });
 
+        const { getPokemonLock } = require("../utils/lockHelper");
+        const lock = await getPokemonLock(p.id);
+        if (lock) return interaction.editReply({ content: `You cannot change moves on this Pokémon — ${lock.reason}` });
+
         const current = await pool.query("SELECT move1, move2, move3, move4 FROM pokemon WHERE id = $1", [p.id]);
         const row = current.rows[0];
         const slots = [row.move1, row.move2, row.move3, row.move4];
@@ -146,6 +156,10 @@ async function execute(message, args, spawns, prefix) {
         // Defer immediately
         await interaction.deferUpdate();
 
+        const { getPokemonLock } = require("../utils/lockHelper");
+        const lock = await getPokemonLock(p.id);
+        if (lock) return interaction.followUp({ content: `You cannot change moves on this Pokémon — ${lock.reason}`, ephemeral: true });
+
         const parts = interaction.customId.split("_");
         const slotIdx = parseInt(parts[1]);
         const moveName = parts.slice(2).join("_");
@@ -193,14 +207,28 @@ async function handleEquipMove(message, args, p, data, pokeName, userId, prefix)
     return message.reply(`Usage: \`${prefix}moves set <slot 1-4> <move name>\`\nExample: \`${prefix}moves set 1 Flamethrower\``);
   }
 
-  const slot = parseInt(args[1]);
-  if (isNaN(slot) || slot < 1 || slot > 4) {
-    return message.reply("Slot must be between 1 and 4!");
+  const { getPokemonLock } = require("../utils/lockHelper");
+  const lock = await getPokemonLock(p.id);
+  if (lock) return message.reply(`You cannot change moves on this Pokémon — ${lock.reason}`);
+
+  let slot = null;
+  let moveTokens = [];
+
+  if (!isNaN(args[1]) && parseInt(args[1], 10) >= 1 && parseInt(args[1], 10) <= 4) {
+    slot = parseInt(args[1], 10);
+    moveTokens = args.slice(2);
+  } else if (!isNaN(args[args.length - 1]) && parseInt(args[args.length - 1], 10) >= 1 && parseInt(args[args.length - 1], 10) <= 4) {
+    slot = parseInt(args[args.length - 1], 10);
+    moveTokens = args.slice(1, -1);
   }
 
-  const moveName = args.slice(2).join(" ");
-  const availableMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
-  const move = availableMoves.find(m => m.name.toLowerCase() === moveName.toLowerCase());
+  if (!slot) {
+    return message.reply("Slot must be between 1 and 4! Example: `c!moves set 1 Flamethrower`");
+  }
+
+  const moveName = moveTokens.join(" ");
+  const rawMoves = getAvailableMoves(data.types, p.level, p.pokemon_id);
+  const move = rawMoves.find(m => m.name.toLowerCase() === moveName.toLowerCase());
 
   if (!move) {
     return message.reply(`**${moveName}** is not available for this Pokemon at level ${p.level}! Use \`${prefix}moves\` to see available moves.`);

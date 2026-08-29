@@ -76,8 +76,9 @@ const PAGES = [
         value:
           "**Mega Evolution** — Hold a Mega Stone, press Mega button\n" +
           "**Gigantamax** — Hold a G-Max Ring, press G-Max button\n" +
-          "**Primal Reversion** — Hold Primal Orb (Kyogre/Groudon)\n" +
-          "Forms revert after the battle ends"
+          "**Z-Moves** — Hold a Z-Ring, press Z-Power for a 1.6x super attack\n" +
+          "**Primal Reversion** — Hold Mega Stone (Kyogre/Groudon)\n" +
+          "Forms and boosts apply in-battle one-shot style"
       }
     ]
   },
@@ -96,9 +97,10 @@ const PAGES = [
         name: "━━━ 🛒 Shop ━━━",
         value:
           "`c!shop` — Browse all available items\n" +
-          "`c!shop buy <item>` — Purchase an item\n" +
-          "`c!shop use <item> <#>` — Use item on a Pokémon\n" +
-          "`c!shop hold <item> <#>` — Give item to Pokémon to hold\n" +
+          "`c!shop buy <item> [qty]` — Purchase an item\n" +
+          "`c!shop sell <item> [qty]` — Sell items for 50% Cybercoins\n" +
+          "`c!shop use <item> [pos]` — Use item on a Pokémon\n" +
+          "`c!shop hold <item> <#>` — Give item to Pokémon to hold (Mega Stone/G-Max Ring/Z-Ring)\n" +
           "`c!shop unhold <#>` — Remove held item\n" +
           "`c!inventory` — View your backpack & held items"
       }

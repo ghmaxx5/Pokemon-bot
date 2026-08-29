@@ -3,6 +3,7 @@ const path = require("path");
 
 let pokemonData = null;
 let pokemonByName = null;
+let spawnPicker = null;
 
 function loadPokemonData() {
   if (pokemonData) return pokemonData;
@@ -47,13 +48,24 @@ function getPokemonByName(name) {
 
 function getRandomPokemon() {
   if (!pokemonData) loadPokemonData();
-  // Exclude event-only pokemon from normal spawns
-  const ids = Array.from(pokemonData.keys()).filter(id => {
-    const p = pokemonData.get(id);
-    return !p.isEventPokemon;
-  });
-  const id = ids[Math.floor(Math.random() * ids.length)];
-  return pokemonData.get(id);
+  if (!spawnPicker) {
+    const { getRarity, TIERS, buildWeightedPicker } = require("./rarity");
+    // Event-only Pokemon are excluded here; they come from getRandomEventPokemon().
+    const candidates = Array.from(pokemonData.values())
+      .filter(p => !p.isEventPokemon && p.isCatchable !== false);
+    spawnPicker = buildWeightedPicker(candidates, p => TIERS[getRarity(p)].weight);
+  }
+  return spawnPicker.pick();
+}
+
+/** Weighted picker restricted to a single rarity tier — used by admin tooling. */
+function getRandomPokemonOfRarity(tier) {
+  if (!pokemonData) loadPokemonData();
+  const { getRarity } = require("./rarity");
+  const pool = Array.from(pokemonData.values())
+    .filter(p => !p.isEventPokemon && p.isCatchable !== false && getRarity(p) === tier);
+  if (!pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function getRandomEventPokemon() {
@@ -83,10 +95,13 @@ function getAllPokemon() {
 }
 
 function getPokemonImage(id, shiny = false) {
-  const p = pokemonData ? pokemonData.get(id) : null;
+  if (!pokemonData) loadPokemonData();
+  const p = pokemonData.get(id);
   // Use custom image URL if set (event/form Pokemon)
   if (p) {
     if (shiny && p.imageUrlShiny) return p.imageUrlShiny;
+    // Custom-art forms fall back to their normal art rather than the base
+    // species' shiny sprite, which would be a different-looking Pokemon.
     if (p.imageUrl) return p.imageUrl;
   }
   const imageId = (p && p.baseForm) ? p.baseForm : id;
@@ -98,5 +113,6 @@ function getPokemonImage(id, shiny = false) {
 
 module.exports = {
   loadPokemonData, getPokemonById, getPokemonByName,
-  getRandomPokemon, getRandomEventPokemon, searchPokemon, getAllPokemon, getPokemonImage
+  getRandomPokemon, getRandomPokemonOfRarity, getRandomEventPokemon,
+  searchPokemon, getAllPokemon, getPokemonImage
 };

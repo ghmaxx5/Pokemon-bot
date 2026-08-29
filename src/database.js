@@ -135,9 +135,26 @@ async function initDatabase() {
         PRIMARY KEY (guild_id, channel_id)
       );
 
+      -- Per-trainer display preferences (c!order). Positions stay tied to
+      -- id ASC regardless of this, so changing it can never make c!release
+      -- target a different Pokemon.
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+        list_sort TEXT DEFAULT 'default'
+      );
+
       CREATE INDEX IF NOT EXISTS idx_pokemon_user_id ON pokemon(user_id);
       CREATE INDEX IF NOT EXISTS idx_pokemon_pokemon_id ON pokemon(pokemon_id);
       CREATE INDEX IF NOT EXISTS idx_market_listings_price ON market_listings(price);
+      CREATE INDEX IF NOT EXISTS idx_market_listings_seller ON market_listings(seller_id);
+      CREATE INDEX IF NOT EXISTS idx_market_listings_pokemon ON market_listings(pokemon_db_id);
+      -- One Pokemon, one listing. Two concurrent listing calls could otherwise
+      -- both insert, leaving a Pokemon on sale twice.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_market_listings_pokemon_unique ON market_listings(pokemon_db_id);
+      CREATE INDEX IF NOT EXISTS idx_market_listings_listed_at ON market_listings(listed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_inventory_user ON user_inventory(user_id);
+      CREATE INDEX IF NOT EXISTS idx_boosts_user_type ON user_boosts(user_id, boost_type);
+      CREATE INDEX IF NOT EXISTS idx_trade_pokemon_trade ON trade_pokemon(trade_id);
     `);
     console.log("Database initialized successfully");
   } finally {

@@ -120,8 +120,18 @@ async function execute(message, args, spawns, prefix) {
   const shinyText = shiny ? "✨ ***SHINY*** ✨ " : "";
   const pokeName = pokemonInfo.displayName || capitalize(pokemonInfo.name);
 
+  const { getRarityInfo } = require("../data/rarity");
+  const { NATURE_MODIFIERS } = require("../data/natures");
+  const rarity = getRarityInfo(pokemonInfo);
+  const mod = NATURE_MODIFIERS[nature];
+  let natureStr = nature;
+  if (mod && mod.up && mod.down) {
+    const upMap = { atk: "Atk", def: "Def", spatk: "SpA", spdef: "SpD", spd: "Spd" };
+    natureStr += ` (▲${upMap[mod.up] || mod.up} ▼${upMap[mod.down] || mod.down})`;
+  }
+
   let desc = `${message.author} caught a ${shinyText}**Level ${level} ${pokeName}**!\n\n` +
-    `**IV:** ${iv}%\n**Nature:** ${nature}`;
+    `**IV:** ${iv}%\n**Nature:** ${natureStr}\n**Rarity:** ${rarity.emoji} ${rarity.label}`;
   if (pokemonInfo.isEventPokemon) {
     desc += `\n🎨 **Held Item:** Hand-held Color Pouch auto-equipped!`;
     desc += `\n✦ **Moves:** ${[move1,move2,move3,move4].filter(Boolean).join(" | ")}`;
