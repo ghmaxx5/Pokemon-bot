@@ -640,14 +640,19 @@ async function showCategory(message, user, prefix, catId) {
   const items = getPurchasableItems(catId);
   const embed = new EmbedBuilder()
     .setTitle(`${cat.emoji} ${cat.name}`)
-    .setDescription(`Your balance: **${user.balance.toLocaleString()}** Cybercoins\n*${cat.description}*\n\n`)
+    .setDescription(`Your balance: **${(user.balance || 0).toLocaleString()}** Cybercoins\n*${cat.description}*\n\n`)
     .setColor(0x9b59b6);
 
-  const itemStr = items.map(i =>
-    `${i.emoji} **${i.name}** — **${i.price.toLocaleString()}** CC\n┗ \`${prefix}shop buy ${i.id}\` · ${i.description}`
-  ).join("\n\n");
+  // Chunk items into groups of 5 to strictly obey Discord 1024 char limits per field
+  for (let i = 0; i < items.length; i += 5) {
+    const chunk = items.slice(i, i + 5);
+    const chunkStr = chunk.map(item =>
+      `${item.emoji} **${item.name}** — **${item.price.toLocaleString()}** CC\n┗ \`${prefix}shop buy ${item.id}\` · ${item.description}`
+    ).join("\n\n");
+    const fieldTitle = items.length > 5 ? `${cat.name} (Part ${Math.floor(i / 5) + 1})` : "Available Items";
+    embed.addFields({ name: fieldTitle, value: chunkStr, inline: false });
+  }
 
-  embed.setDescription(embed.data.description + (itemStr || "No items currently available."));
   embed.setFooter({ text: `${prefix}shop buy <item> [qty] | ${prefix}shop | ${prefix}shop inv` });
 
   return message.channel.send({ embeds: [embed] });
@@ -657,20 +662,32 @@ async function showCategory(message, user, prefix, catId) {
 async function showShop(message, user, prefix) {
   const embed = new EmbedBuilder()
     .setTitle("🏪 Cyber Shop")
-    .setDescription(`Your balance: **${user.balance.toLocaleString()}** Cybercoins\n\n`)
+    .setDescription(`Your balance: **${(user.balance || 0).toLocaleString()}** Cybercoins\n\n`)
     .setColor(0x9b59b6);
 
-  for (const [catId, cat] of Object.entries(SHOP_CATEGORIES)) {
-    const items = getPurchasableItems(catId);
-    if (!items.length) continue;
-
-    const itemStr = items.map(i =>
-      `${i.emoji} **${i.name}** — **${i.price.toLocaleString()}** CC\n┗ ${i.description}`
-    ).join("\n\n");
-    embed.addFields({ name: `${cat.emoji} ${cat.name}`, value: itemStr, inline: false });
+  // Battle items
+  const battleItems = getPurchasableItems("battle");
+  if (battleItems.length) {
+    const battleStr = battleItems.map(i => `${i.emoji} **${i.name}** — **${i.price.toLocaleString()}** CC\n┗ ${i.description}`).join("\n\n");
+    embed.addFields({ name: "⚔️ Battle Items", value: battleStr, inline: false });
   }
 
-  embed.setFooter({ text: `${prefix}shop buy <item> [qty] | ${prefix}shop sell <item> [qty] | ${prefix}shop use <item> [number] | ${prefix}shop hold <item> <number>` });
+  // Items & Consumables
+  const genItems = getPurchasableItems("items");
+  if (genItems.length) {
+    const itemsStr = genItems.map(i => `${i.emoji} **${i.name}** — **${i.price.toLocaleString()}** CC\n┗ ${i.description}`).join("\n\n");
+    embed.addFields({ name: "🎒 Items & Consumables", value: itemsStr, inline: false });
+  }
+
+  // Evolution items summary (to stay strictly within Discord 1024-character limit)
+  const evoItems = getPurchasableItems("evolution");
+  if (evoItems.length) {
+    const stoneNames = evoItems.map(i => `${i.emoji} ${i.name}`).join(" · ");
+    const evoStr = `**Price:** 5,000 Cybercoins each\n\n${stoneNames}\n\n💡 *Use \`${prefix}shop evolution\` to browse all evolution stones and items!*`;
+    embed.addFields({ name: "🪨 Evolution Stones & Items", value: evoStr, inline: false });
+  }
+
+  embed.setFooter({ text: `${prefix}shop buy <item> [qty] | ${prefix}shop sell <item> [qty] | ${prefix}shop use <item> [pos] | ${prefix}shop hold <item> <#>` });
 
   message.channel.send({ embeds: [embed] });
 }

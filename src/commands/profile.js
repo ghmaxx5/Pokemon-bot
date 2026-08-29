@@ -47,6 +47,7 @@ async function execute(message, args, spawns, prefix) {
     if (spData) {
       const spName = sp.nickname || capitalize(spData.name);
       const spIV = totalIV({ hp: sp.iv_hp, atk: sp.iv_atk, def: sp.iv_def, spatk: sp.iv_spatk, spdef: sp.iv_spdef, spd: sp.iv_spd });
+      const typeStr = (spData.types || []).map(t => getTypeEmoji(t)).join(" ");
       let heldStr = "";
       if (sp.held_item === "mega_stone") heldStr = " | 🎒 💎 Mega Stone";
       else if (sp.held_item === "gmax_ring") heldStr = " | 🎒 💍 G-Max Ring";
@@ -84,7 +85,7 @@ async function execute(message, args, spawns, prefix) {
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━`
     )
     .addFields(
-      { name: "💰 Balance", value: `**${u.balance.toLocaleString()}** Cybercoins`, inline: true },
+      { name: "💰 Balance", value: `**${(u.balance || 0).toLocaleString()}** Cybercoins`, inline: true },
       { name: "📅 Joined", value: `${daysSinceJoin} days ago`, inline: true },
       { name: "📦 Total Pokemon", value: `**${totalCount}**`, inline: true },
       { name: "✨ Shinies", value: `**${shinies}**`, inline: true },
@@ -99,6 +100,7 @@ async function execute(message, args, spawns, prefix) {
     .setColor(0x2f3136);
 
   if (inventoryStr) {
+    if (inventoryStr.length > 1024) inventoryStr = inventoryStr.substring(0, 1020) + "...";
     embed.addFields({ name: "🎒 Inventory", value: inventoryStr, inline: false });
   }
 
